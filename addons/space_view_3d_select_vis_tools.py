@@ -35,12 +35,119 @@ bl_info = {
 	"category": "Selection"}
 
 import bpy
-
-
-
-
-
+import bmesh
 from bpy.props import IntProperty, BoolProperty, FloatProperty, EnumProperty
+
+
+def createModifierForObject(modname, typename):
+	if isinstance(obj.data, bpy_types.Mesh):		
+		me = obj.data
+		mod = obj.modifiers.new(modname, typename)	
+	
+def ApplyBackProjection(obj):
+	if isinstance(obj.data, bpy_types.Mesh):		
+		print("got here")
+		me = obj.data
+		try:
+			uvproj = obj.modifiers['UVProject']
+		except :		
+			uvproj = obj.modifiers.new("UVProject", 'UV_PROJECT')
+		uvproj.use_image_override = True
+		uvproj.projectors[0].object = bpy.data.objects['Camera']
+		uvproj.image = bpy.data.images['livingroomfullresrender.png']
+		uvproj.scale_x = 0.86
+		uvproj.scale_y = 0.46
+		uvproj.uv_layer='UVMap'
+
+def createModifierForAllSelected(modname):
+	bpy.context.scene.objects.active = target
+
+def startMeshUpdate(obj):
+	if isinstance(obj.data, bpy_types.Mesh):		
+		me = obj.data
+		if me.is_editmode:
+			# Gain direct access to the mesh
+			bm = bmesh.from_edit_mesh(me)
+		else:
+			# Create a bmesh from mesh
+			# (won't affect mesh, unless explicitly written back)
+			bm = bmesh.new()
+			bm.from_mesh(me)		
+		return bm
+	else:
+		return None
+
+def endMeshUpdate(obj, bm):
+	if isinstance(obj.data, bpy_types.Mesh):		
+		me = obj.data
+		if me.is_editmode:
+				bmesh.update_edit_mesh(me)
+		else:
+			bm.to_mesh(me)
+			me.update()
+		bm.free()
+		del bm
+
+def projectXYuvs(obj):
+	# adjust UVs
+	bm = startMeshUpdate(obj)
+	if bm != None:
+		uv_layer = bm.loops.layers.uv.verify()
+		print("About to create UVs for: " + obj.name)
+		bm.faces.layers.tex.verify()  # currently blender needs both layers.	
+		startMeshUpdate(obj)
+		for f in bm.faces:
+			for l in f.loops:
+				luv = l[uv_layer]
+				if luv.select:
+					# apply the location of the vertex as a UV
+					luv.uv = l.vert.co.xy
+		endMeshUpdate(obj, bm)
+
+#more to remind myself about bpy.context.active_object
+def ApplyBackProjectionToCurrent():
+	ApplyBackProjection(bpy.context.active_object)
+
+def ensure_uvs(obj):
+	bm = startMeshUpdate(obj)
+	if bm != None:
+		print("About to create UVs for: " + obj.name)	
+		uv_layer = bm.loops.layers.uv.verify()
+		bm.faces.layers.tex.verify()  # currently blender needs both layers.	
+		endMeshUpdate(obj, bm)
+
+def applyBackProjectionToSelected():
+	for ob in bpy.data.objects:
+		if ob.select == True:
+			ApplyBackProjection(ob)
+
+def applyProjectionModifier():
+	for ob in bpy.data.objects:
+		if ob.select == True:
+			projectXYuvs(ob)
+
+
+def applyMaterialToSelectedObjects():
+	D = bpy.data
+	try:
+		mat = D.materials['Material']
+	except:
+		mat = D.Materials[0];
+	for ob in bpy.data.objects:			
+		if ob.select == True and isinstance(ob.data, bpy_types.Mesh):			
+			if len(ob.material_slots) < 1:
+				ob.data.materials.append(mat)
+
+
+def createuvs_withprojection():
+	for ob in bpy.data.objects:
+		if ob.select == True:
+			projectXYuvs(ob)
+		
+def createuvs():
+	for ob in bpy.data.objects:
+		if ob.select == True:
+			ensure_uvs(ob)		
 
 def hideselected():
 	for ob in bpy.data.objects:
@@ -80,6 +187,12 @@ def disablerigidbodyonselected():
 	for ob in bpy.data.objects:
 		if ob.select == True and ob.rigid_body != None:
 			ob.rigid_body.enabled = False                       
+
+
+def setnameforallselected(name):
+	for ob in bpy.data.objects:
+		if ob.select == True:
+			ob.name = name
 
 def enablerigidbodyonselected():
 	for ob in bpy.data.objects:
@@ -144,6 +257,16 @@ class HideAllSelected(bpy.types.Operator):
 		hideselected()     
 		return {'FINISHED'}
 
+class HideAllSelected(bpy.types.Operator):    
+	bl_idname = "view3d.create_uvs"
+	bl_label = "Create UVs"
+	trigger = BoolProperty(default = False)
+	mode = BoolProperty(default = False)
+		 
+	def execute(self, context):
+		createuvs()     
+		return {'FINISHED'}		
+
 class ShowRenderAllSelected(bpy.types.Operator):   #nb: CamelCase
 	bl_idname = "view3d.render_show_all_selected" #nb underscore_case
 	bl_label = "Show all in render"
@@ -153,6 +276,17 @@ class ShowRenderAllSelected(bpy.types.Operator):   #nb: CamelCase
 	def execute(self, context):
 		rendershowselected()
 		return {'FINISHED'}
+
+class ApplyBackProjectionAllSelected(bpy.types.Operator):   #nb: CamelCase
+	bl_idname = "view3d.apply_back_projection" #nb underscore_case
+	bl_label = "Apply back projection"
+	trigger = BoolProperty(default = False)
+	mode = BoolProperty(default = False)
+		 
+	def execute(self, context):
+		applyBackProjectionToSelected()
+		return {'FINISHED'}
+
 
 class HideRenderAllSelected(bpy.types.Operator):    
 	bl_idname = "view3d.render_hide_all_selected"
@@ -318,6 +452,9 @@ class VIEW3D_PT_SelectionHelp(bpy.types.Panel):
 		row.operator("view3d.enable_rigid_body_all_selected", icon='RESTRICT_VIEW_OFF')
 		row.operator("view3d.disable_rigid_body_all_selected", icon='RESTRICT_VIEW_OFF')
 		row = col.row()                
+		row.operator("view3d.apply_back_projection", icon='RESTRICT_VIEW_OFF')
+		#row.operator("view3d.disable_rigid_body_all_selected", icon='RESTRICT_VIEW_OFF')
+		row = col.row()        
 
 class VIEW3D_PT_KeyframeHelp(bpy.types.Panel):
 	bl_space_type = "VIEW_3D"
