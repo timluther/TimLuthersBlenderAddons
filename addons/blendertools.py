@@ -1,3 +1,5 @@
+import bpy
+
 def removeimage(img):
 	imgobj = bpy.data.images[img]
 	imgobj.user_clear()
