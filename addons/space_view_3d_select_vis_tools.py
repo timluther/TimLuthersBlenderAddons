@@ -42,10 +42,10 @@ bl_info = {
 	"tracker_url": "",
 	"category": "Selection"}
 
-
 from bpy.props import IntProperty, BoolProperty, FloatProperty, EnumProperty
-sys.path.append(os.path.dirname(__file__))   # hack to make sure we can access modules on the same path as this file
 
+sys.path.append(os.path.dirname(__file__)) #hack to make sure we can access modules on the same path as this file
+from blendertools import *
 
 class ShowAllSelected(bpy.types.Operator):   # nb: CamelCase
 	bl_idname = "view3d.show_all_selected" # nb underscore_case
