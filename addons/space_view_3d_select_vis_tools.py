@@ -24,9 +24,12 @@
 
 import bpy
 import bpy_types
+import bpy_extras
 import bmesh
 import sys
 import os
+import blendertools
+from blendertools import *
 
 bl_info = {
 	"name": "Selection visibility tools",
@@ -40,13 +43,13 @@ bl_info = {
 	"tracker_url": "",
 	"category": "Selection"}
 
-
 from bpy.props import IntProperty, BoolProperty, FloatProperty, EnumProperty
+
 sys.path.append(os.path.dirname(__file__)) #hack to make sure we can access modules on the same path as this file
 from blendertools import *
 
-class ShowAllSelected(bpy.types.Operator):   #nb: CamelCase
-	bl_idname = "view3d.show_all_selected" #nb underscore_case
+class ShowAllSelected(bpy.types.Operator):   # nb: CamelCase
+	bl_idname = "view3d.show_all_selected" # nb underscore_case
 	bl_label = "Show all"
 	trigger = BoolProperty(default = False)
 	mode = BoolProperty(default = False)
@@ -54,6 +57,17 @@ class ShowAllSelected(bpy.types.Operator):   #nb: CamelCase
 	def execute(self, context):
 		showselected()
 		return {'FINISHED'}
+
+class SelectAllChildren(bpy.types.Operator):   # nb: CamelCase
+	bl_idname = "view3d.select_all_children" # nb underscore_case
+	bl_label = "Select all children of selected objects"
+	trigger = BoolProperty(default = False)
+	mode = BoolProperty(default = False)
+		 
+	def execute(self, context):
+		selectAllChildren()
+		return {'FINISHED'}
+		
 
 class HideAllSelected(bpy.types.Operator):    
 	bl_idname = "view3d.hide_all_selected"
@@ -75,8 +89,8 @@ class HideAllSelected(bpy.types.Operator):
 		createuvs()     
 		return {'FINISHED'}		
 
-class ShowRenderAllSelected(bpy.types.Operator):   #nb: CamelCase
-	bl_idname = "view3d.render_show_all_selected" #nb underscore_case
+class ShowRenderAllSelected(bpy.types.Operator):   # nb: CamelCase
+	bl_idname = "view3d.render_show_all_selected" # nb underscore_case
 	bl_label = "Show all in render"
 	trigger = BoolProperty(default = False)
 	mode = BoolProperty(default = False)
@@ -102,12 +116,12 @@ class SetAllSelectedToCurrentLayers(bpy.types.Operator):   #nb: CamelCase
 	mode = BoolProperty(default = False)
 		 
 	def execute(self, context):
-		setAllSelectedToCurrentLayers()
+		blendertools.setAllSelectedToCurrentLayers()
 		return {'FINISHED'}
 
 class OrAllSelectedWithCurrentLayers(bpy.types.Operator):   #nb: CamelCase
 	bl_idname = "view3d.or_with_current_layers" #nb underscore_case
-	bl_label = "Or Selected object's Layers with Current layers"
+	bl_label = "Or selected objects' layers with current layers"
 	trigger = BoolProperty(default = False)
 	mode = BoolProperty(default = False)
 		 
@@ -115,7 +129,46 @@ class OrAllSelectedWithCurrentLayers(bpy.types.Operator):   #nb: CamelCase
 		orAllSelectedWithCurrentLayers()
 		return {'FINISHED'}
 
+class HideFromCameraRays(bpy.types.Operator):   #nb: CamelCase
+	bl_idname = "view3d.hide_from_camera_rays" #nb underscore_case
+	bl_label = "Hide from camera rays"
+	trigger = BoolProperty(default = False)
+	mode = BoolProperty(default = False)
+	
+	def execute(self, context):
+		setCameraRayVisibility(False)
+		return {'FINISHED'}
 
+class ShowToCameraRays(bpy.types.Operator):   #nb: CamelCase
+	bl_idname = "view3d.show_to_camera_rays" #nb underscore_case
+	bl_label = "Show to camera rays"
+	trigger = BoolProperty(default = False)
+	mode = BoolProperty(default = False)
+	print("Showing objects to camera")	 
+	def execute(self, context):
+		setCameraRayVisibility(True)
+		return {'FINISHED'}
+
+class SetRenderBoundsToSelected(bpy.types.Operator):   #nb: CamelCase
+	bl_idname = "view3d.set_render_bounds_to_selected" #nb underscore_case
+	bl_label = "To render bounds to selected"
+	trigger = BoolProperty(default = False)
+	mode = BoolProperty(default = False)
+	print("Showing objects to camera")	 
+	def execute(self, context):
+		setRenderBoundsToSelection(bpy.context.scene.camera, True)
+		return {'FINISHED'}
+
+
+class RestoreRenderBounds(bpy.types.Operator):   #nb: CamelCase
+	bl_idname = "view3d.restore_render_bounds" #nb underscore_case
+	bl_label = "Restore render bounds"
+	trigger = BoolProperty(default = False)
+	mode = BoolProperty(default = False)
+	print("Showing objects to camera")	 
+	def execute(self, context):
+		restoreRenderBounds()
+		return {'FINISHED'}
 
 class HideRenderAllSelected(bpy.types.Operator):    
 	bl_idname = "view3d.render_hide_all_selected"
@@ -253,7 +306,9 @@ class VIEW3D_PT_SelectionHelp(bpy.types.Panel):
 		scene = context.scene
 		row = layout.row(align=True)
 		row.alignment = 'LEFT'
-		row.operator("selection.fast_navigate_operator", icon ='TEXTURE_SHADED')
+		row.operator("selection.fast_navigate_operator", icon = 'TEXTURE_SHADED')
+		row = layout.row()
+		row.operator("view3d.select_all_children", icon = "TEXTURE_SHADED")
 		
 		layout.label(" For all selected objects:")
 		row = layout.row()
@@ -264,7 +319,7 @@ class VIEW3D_PT_SelectionHelp(bpy.types.Panel):
 	  
 		box.prop(scene, "TestNumericProperty", "TestValue")
 		box.alignment = 'LEFT'
-"""
+		"""
 		# Tools
 		col = layout.column()       
 		col.alignment = 'EXPAND'
@@ -282,11 +337,19 @@ class VIEW3D_PT_SelectionHelp(bpy.types.Panel):
 		row.operator("view3d.disable_rigid_body_all_selected", icon='RESTRICT_VIEW_OFF')
 		row = col.row()                
 		row.operator("view3d.apply_back_projection", icon='RESTRICT_VIEW_OFF')
+		row = col.row()        
 		row.operator("view3d.set_to_current_layers", icon='RESTRICT_VIEW_OFF')
 		#row.operator("view3d.disable_rigid_body_all_selected", icon='RESTRICT_VIEW_OFF')
-		row = col.row()        
+		
 		row.operator("view3d.or_with_current_layers", icon='RESTRICT_VIEW_OFF')
-
+		row = col.row()        
+		row.operator("view3d.hide_from_camera_rays", icon='RESTRICT_VIEW_ON')
+		row.operator("view3d.show_to_camera_rays", icon='RESTRICT_VIEW_OFF')
+		row = col.row()
+		row.operator("view3d.set_render_bounds_to_selected", icon='RENDER_REGION')
+		row.operator("view3d.restore_render_bounds", icon='BORDER_RECT')
+	
+		
 class VIEW3D_PT_KeyframeHelp(bpy.types.Panel):
 	bl_space_type = "VIEW_3D"
 	bl_region_type = "TOOLS"
@@ -312,7 +375,7 @@ class VIEW3D_PT_KeyframeHelp(bpy.types.Panel):
 	  
 		box.prop(scene, "TestNumericProperty", "TestValue")
 		box.alignment = 'LEFT'
-"""
+		"""
 		# Tools
 		col = layout.column()       
 		col.alignment = 'EXPAND'
