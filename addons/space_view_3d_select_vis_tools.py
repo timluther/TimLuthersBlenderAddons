@@ -22,6 +22,12 @@
 #
 # ***** END GPL LICENCE BLOCK *****
 
+import bpy
+import bpy_types
+import bmesh
+import sys
+import os
+
 bl_info = {
 	"name": "Selection visibility tools",
 	"author": "Tim Lewis",
@@ -34,11 +40,7 @@ bl_info = {
 	"tracker_url": "",
 	"category": "Selection"}
 
-import bpy
-import bpy_types
-import bmesh
-import sys
-import os
+
 from bpy.props import IntProperty, BoolProperty, FloatProperty, EnumProperty
 sys.path.append(os.path.dirname(__file__)) #hack to make sure we can access modules on the same path as this file
 from blendertools import *

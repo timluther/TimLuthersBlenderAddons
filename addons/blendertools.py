@@ -1,4 +1,8 @@
 import bpy
+import bpy_types
+import bmesh
+import sys
+import os
 
 def removeimage(img):
 	imgobj = bpy.data.images[img]
