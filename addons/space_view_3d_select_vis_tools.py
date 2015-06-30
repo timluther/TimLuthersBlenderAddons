@@ -29,6 +29,7 @@ import bmesh
 import sys
 import os
 import blendertools
+from backprojector import *
 from blendertools import *
 
 bl_info = {
@@ -99,15 +100,6 @@ class ShowRenderAllSelected(bpy.types.Operator):   # nb: CamelCase
 		rendershowselected()
 		return {'FINISHED'}
 
-class ApplyBackProjectionAllSelected(bpy.types.Operator):   #nb: CamelCase
-	bl_idname = "view3d.apply_back_projection" #nb underscore_case
-	bl_label = "Apply back projection"
-	trigger = BoolProperty(default = False)
-	mode = BoolProperty(default = False)
-		 
-	def execute(self, context):
-		applyBackProjectionToSelected()
-		return {'FINISHED'}
 
 class SetAllSelectedToCurrentLayers(bpy.types.Operator):   #nb: CamelCase
 	bl_idname = "view3d.set_to_current_layers" #nb underscore_case
@@ -335,8 +327,6 @@ class VIEW3D_PT_SelectionHelp(bpy.types.Panel):
 		row = col.row()
 		row.operator("view3d.enable_rigid_body_all_selected", icon='RESTRICT_VIEW_OFF')
 		row.operator("view3d.disable_rigid_body_all_selected", icon='RESTRICT_VIEW_OFF')
-		row = col.row()                
-		row.operator("view3d.apply_back_projection", icon='RESTRICT_VIEW_OFF')
 		row = col.row()        
 		row.operator("view3d.set_to_current_layers", icon='RESTRICT_VIEW_OFF')
 		#row.operator("view3d.disable_rigid_body_all_selected", icon='RESTRICT_VIEW_OFF')

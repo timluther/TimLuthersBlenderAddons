@@ -266,6 +266,19 @@ def printUniqueMeshes(mt, threshold):
 			print(".")
 
 
+def contains(list, filter):
+    for x in list:
+        if filter(x):
+            return True
+    return False
+
+
+def find(list, filter):
+    for x in list:
+        if filter(x):
+            return x
+    return None
+
 
 def removeDuplicateMeshReferences(duplicateAmountThreshold = 1):
 	mt = findPotenteialDuplicatedMeshes()
@@ -287,6 +300,7 @@ def printMeshStats(minvcount):
 			print(m.name + " vertex count: " + str(len(m.vertices)) + ", " + " polygon count: " + str(len(m.polygons)))
 
 
+	
 
 def createModifierForObject(modname, typename):
 	if isinstance(obj.data, Mesh):		
@@ -294,8 +308,13 @@ def createModifierForObject(modname, typename):
 		mod = obj.modifiers.new(modname, typename)	
 	
 
-def createModifierForAllSelected(modname):
-	bpy.context.scene.objects.active = target
+
+
+def createModifierForAllSelected(modname, typename):	
+	for ob in bpy.data.objects:
+		if ob.select == True and isinstance(ob.data, Mesh):
+			createModifierForObject(modname, typename)
+
 
 def startMeshUpdate(obj):
 	if isinstance(obj.data, Mesh):		
@@ -348,9 +367,9 @@ def ensure_uvs(obj):
 		bm.faces.layers.tex.verify()  # currently blender needs both layers.	
 		endMeshUpdate(obj, bm)
 
-def applyProjectionModifier():
+def applyProjectionModifierToAlSelected():
 	for ob in bpy.data.objects:
-		if ob.select == True:
+		if ob.select == True and isinstance(ob.data, Mesh):
 			projectXYuvs(ob)
 
 
@@ -381,6 +400,31 @@ def applyMaterialToSelectedObjects(mat = None):
 				ob.data.materials[0] = mat
 	bpy.data.scenes[0].update()
 
+
+
+
+def enableOnlyLayer(layerName):
+	for i in bpy.context.scene.render.layers:
+		i.use = i.name == layerName			 
+
+
+def RenderEachObject():
+	for ob in bpy.data.objects:
+		if ob.select == True and isinstance(ob.data, Mesh):	
+			ApplyBackProjectionToObject(ob, camera)
+
+
+
+	#	print("About to render scene")	
+	#bpy.ops.render.render(layer="RenderLayer") # write_still=True
+	#enableOnlyLayer("RenderLayer")
+	#bpy.data.images['Render Result'].save_render("C:\\Users\\Tim\\Google Drive\\OysterWorld\\HOPA\\BlenderOutput\\layer0.png")
+	#bpy.data.images['Render Result'].
+	#print("Rendered layer 0")	
+	#enableOnlyLayer("Overlay")
+	#bpy.ops.render.render() 
+	#bpy.data.images['Render Result'].save_render("C:\\Users\\Tim\\Google Drive\\OysterWorld\\HOPA\\BlenderOutput\\layer1.png")
+	#return {'FINISHED RENDER'}
 
 
 def createuvs_withprojection():
