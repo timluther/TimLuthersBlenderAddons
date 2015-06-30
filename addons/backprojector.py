@@ -2,7 +2,7 @@ import bpy
 import sys
 import os
 from blendertools import *
-import bpy_types
+from bpy_types import *
 import bpy_extras
 from bpy.props import IntProperty, BoolProperty, FloatProperty, EnumProperty
 
@@ -50,31 +50,102 @@ class RenderScene(bpy.types.Operator):
 
 
 
+class CSavePSD(bpy.types.Operator):
+	bl_idname = "view3d.save_psd"
+	bl_label = "Save PSD"
+	trigger = BoolProperty(default = False)
+	mode = BoolProperty(default = False)
+		 
+	def execute(self, context):
+		print("About to save PSD")
+		
+		return {'FINISHED'}
+
+class CSaveFBX(bpy.types.Operator):
+	bl_idname = "view3d.save_fbx"
+	bl_label = "Save FBX"
+	trigger = BoolProperty(default = False)
+	mode = BoolProperty(default = False)
+		 
+	def execute(self, context):
+		print("About to save FBX")
+		
+		return {'FINISHED'}
+
+
+class CSetPreviewMaterial(bpy.types.Operator):
+	bl_idname = "view3d.set_preview_material"
+	bl_label = "Save FBX"
+	trigger = BoolProperty(default = False)
+	mode = BoolProperty(default = False)
+		 
+	def execute(self, context):
+		print("About to set preview material")
+		mat = FindOrCreateProjectionMaterial("LivingRoom_NoTableStuff.png")
+		SetPreviewMaterial(mat)
+		return {'FINISHED'}
+
+
+
+class CRestoreSourceMaterials(bpy.types.Operator):
+	bl_idname = "view3d.restore_source_material"
+	bl_label = "Save FBX"
+	trigger = BoolProperty(default = False)
+	mode = BoolProperty(default = False)
+		 
+	def execute(self, context):
+		print("About to set preview material")		
+		RestoreSourceMaterials()
+		return {'FINISHED'}
+
+
+def copylist(inlist)
+	return [i in inlist]
+
 GlobalOldMaterials = {}
 
 def SetPreviewMaterial(mat):
-	global GLobalOldMaterials
+	global GlobalOldMaterials
 	for ob in bpy.data.objects:
 		if ob.select == True and isinstance(ob.data, Mesh):
-			GLobalOldMaterials[ob] = ob.material_slots
+			GlobalOldMaterials[ob] = list(ob.data.materials)
+			oldCount = len(ob.data.materials)
+			ob.data.materials.clear()
+			for i in range(oldCount):
+				ob.data.materials.append(mat)
+
+
+def RestoreSourceMaterials():
+	global GlobalOldMaterials
+	for ob in bpy.data.objects:
+		if ob.select == True and isinstance(ob.data, Mesh):
+			oldmaterials =  GlobalOldMaterials[ob]
+			ob.data.materials.clear()			
+			for mat in oldmaterials:
+				ob.data.materials.append(mat)
+	GlobalOldMaterials.clear()
 
 
 
-def CreateProjectionMaterial(image):
-	mat = bpy.data.materials.new("OverpaintMaterial_%s" % image.name)
-	nodes = mat.node_tree.nodes
 
-	# get some specific node:
-	# returns None if the node does not exist
-	diffuse = nodes.get("Diffuse BSDF")
-	node_texture = nodes.new(type="ShaderNodeTexImage")	
-	node_texture.image = image
-	links = mat.node_tree.links
-	link = links.new(node_texture.outputs[0], diffuse.inputs[0])
-
-
-
-	return mat
+def FindOrCreateProjectionMaterial(image):
+	matname = "OverpaintMaterial_%s" % image.name
+	try:
+		mat = bpy.data.materials[matname]
+		return mat
+	except:
+		mat = bpy.data.materials.new(matname)
+		mat.use_nodes = True
+		nodes = mat.node_tree.nodes
+		diffuse = nodes.get("Diffuse BSDF")
+		node_texture = nodes.new(type="ShaderNodeTexImage")	
+		node_texture.image = image
+		links = mat.node_tree.links
+		link = links.new(node_texture.outputs[0], diffuse.inputs[0])
+		node_attribute = nodes.new(type="ShaderNodeAttribute")
+		node_attribute.attribute_name="ProjUV"
+		link = links.new(node_attribute.outputs[1], node_texture.inputs[0])
+		return mat
 
 
 def ApplyBackProjectionToObject(obj, camera):
@@ -100,8 +171,9 @@ def ApplyBackProjectionToObject(obj, camera):
 		except:
 			image = None
 		uvproj.image = image
-		uvproj.scale_x = 0.86
-		uvproj.scale_y = 0.46
+		float ar = image.size[1] / image.size[0]
+		uvproj.scale_x = 1.0
+		uvproj.scale_y = ar
 		uvproj.uv_layer='ProjUV'
 
 #more to remind myself about bpy.context.active_object
@@ -144,18 +216,14 @@ class VIEW3D_PT_BackProjector(bpy.types.Panel):
 		row = col.row()    
 		row.operator("view3d.save_psd", icon="MOD_UVPROJECT")
 		row.operator("view3d.save_fbx", icon="MOD_UVPROJECT")
+		row = col.row()    
+		row.operator("view3d.set_preview_material", icon="MOD_UVPROJECT")
+		row.operator("view3d.restore_source_material", icon="MOD_UVPROJECT")
 
 
 		col.alignment = 'EXPAND'
 		
-	#	row.operator("view3d.apply_back_projection", icon='MOD_UVPROJECT')
-		#row.operator(STR_start_render_cmd,  icon='MOD_UVPROJECT')
-		
-		#row = col.row()
-		row.label(text="Save:")        
-		#row.operator(STR_save_psd_cmd, text=STR_save_psd, icon='EXPORT')
-		#row.operator(STR_save_fbx_cmd, text=STR_save_fbx, icon='EXPORT')
-
+	#	
 		#ob = context.active_object
 		#layout.prop_search(ob, "textureName", bpy.data, "images")
 
@@ -163,16 +231,20 @@ def register():
 	bpy.utils.register_class(VIEW3D_PT_BackProjector)
 	bpy.utils.register_class(ApplyBackProjection)
 	bpy.utils.register_class(RenderScene)
-	bpy.utils.register_class(SavePSD)
-	bpy.utils.register_class(SaveFBX)
+	bpy.utils.register_class(CSavePSD)
+	bpy.utils.register_class(CSaveFBX)
+	bpy.utils.register_class(CSetPreviewMaterial)
+	bpy.utils.register_class(CRestoreSourceMaterials)
 
 def unregister():
 	bpy.utils.unregister_class(VIEW3D_PT_BackProjector)
 
 	bpy.utils.unregister_class(ApplyBackProjection)
 	bpy.utils.unregister_class(RenderScene)
-	bpy.utils.unregister_class(SavePSD)
-	bpy.utils.unregister_class(SaveFBX)
+	bpy.utils.unregister_class(CSavePSD)
+	bpy.utils.unregister_class(CSaveFBX)
+	bpy.utils.unregister_class(CSetPreviewMaterial)
+	bpy.utils.unregister_class(CRestoreSourceMaterials)
 
 if __name__ == "__main__":
 	register()
