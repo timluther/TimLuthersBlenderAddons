@@ -151,6 +151,13 @@ def getScreenSpaceBoundsOfSelection(camera, useBounds = False):
 		if i.select and isinstance(i.data, Mesh):
 			bounds = mergeBounds(bounds, getScreenSpaceBoundsNoScale(i, camera, useBounds))
 	return bounds
+
+def getScreenSpaceBoundsWithLayerMask(camera, useBounds = False, layermask = 0):
+	bounds = ((100000,100000), (-100000, -100000))
+	for i in bpy.context.scene.objects:
+		if i.layermask and isinstance(i.data, Mesh):
+			bounds = mergeBounds(bounds, getScreenSpaceBoundsNoScale(i, camera, useBounds))
+	return bounds
 #int(scene.render.resolution_x * render_scale) * render_size[0],
 #int(scene.render.resolution_y * render_scale) * render_size[1],
 	  
@@ -359,7 +366,7 @@ def projectXYuvs(obj):
 		endMeshUpdate(obj, bm)
 
 
-def ensure_uvs(obj):
+def ensureUVs(obj):
 	bm = startMeshUpdate(obj)
 	if bm != None:
 		print("About to create UVs for: " + obj.name)	
@@ -435,7 +442,7 @@ def createuvs_withprojection():
 def createuvs():
 	for ob in bpy.data.objects:
 		if ob.select == True:
-			ensure_uvs(ob)		
+			ensureUVs(ob)		
 
 def hideselected():
 	for ob in bpy.data.objects:
