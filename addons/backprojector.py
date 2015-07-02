@@ -7,6 +7,7 @@ import bpy_extras
 import json
 from bpy.props import IntProperty, BoolProperty, FloatProperty, EnumProperty
 import csv
+from os.path import expanduser
 
 bl_info = {
 	"name": "BackProjection tools",
@@ -22,6 +23,8 @@ bl_info = {
 }
 
 pathBase = '/tmp/'
+
+
 
 
 LAYER_BACKGROUND = 0
@@ -113,7 +116,7 @@ def viewPlane(camd, winx, winy, xasp, yasp):
 	return xmin, xmax, ymin, ymax
 
 
-def projectionMatrix(camd):
+def projectionMatrix(camd, scale=[1,1], trans=[0,0,0]):
 	r = bpy.context.scene.render
 	left, right, bottom, top = viewPlane(camd, r.resolution_x, r.resolution_y, 1, 1)
 
@@ -123,33 +126,10 @@ def projectionMatrix(camd):
 	Ydelta = top - bottom
 	Zdelta = farClip - nearClip
 
-	return Matrix([[nearClip * 2 / Xdelta, 0, 0, 0],
-				  [0, nearClip * 2 / Ydelta, 0, 0],
+	return Matrix([[(nearClip * 2 / Xdelta) * scale[0], 0, 0, 0],
+				  [0, (nearClip * 2 / Ydelta) * scale[1], 0, 0],
 				  [(right + left) / Xdelta, (top + bottom) / Ydelta, (farClip + nearClip) / Zdelta, -1 ],
-				  [0, 0, (-2 * nearClip * farClip) / Zdelta ,1]])	
-
-
-def projectionMatrix2(camd):
-	r = bpy.context.scene.render
-	left, right, bottom, top = viewPlane(camd, r.resolution_x, r.resolution_y, 1, 1)
-
-	farClip, nearClip = camd.clip_end, camd.clip_start
-
-	Xdelta = right - left
-	Ydelta = top - bottom
-	Zdelta = farClip - nearClip
-
-	return Matrix([[nearClip * 2 / Xdelta, 0, (right + left) / Xdelta, 0],
-					[0, nearClip * 2 / Ydelta, (top + bottom) / Ydelta,0 ],
-					[0, 0,  (farClip + nearClip) / Zdelta, (-2 * nearClip * farClip) / Zdelta ],
-					[0,0,-1,1]])
-
-def getCamMat(cam, scale = 0.5):
-	scalemat = Matrix.Scale(scale, 4)
-	transmat = Matrix.Translation([0.5, 0.5, 0.0])
-	projmat = projectionMatrix(cam.data)
-	return  cam.matrix_world * projmat * scalemat.transposed() * transmat.transposed()
-
+				  [trans[0],trans[1], trans[2] + (-2 * nearClip * farClip) / Zdelta ,1]])	
 
 def getActiveView():
 	for area in bpy.context.screen.areas:
@@ -165,21 +145,30 @@ def getActiveViewMatrix():
 			return area.spaces.active.region_3d.perspective_matrix.transposed() * area.spaces.active.region_3d.view_matrix.transposed()
 	return None
 
+
+def Make2DScaleMatrix(scale):
+	return Matrix([[scale[0], 0, 0, 0], [0, scale[1], 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]])
+
 #for a given object and camera, return the MVP. This should be an exact match to the UV projection
 #modifier (not quite, at time of writing: some scaling is off, possibly something to do with image scale?)
-def getMVP(obj, cam, scale = 0.5):
-	scalemat = Matrix.Scale(scale, 4)
-	transmat = Matrix.Translation([0.5, 0.5, 0.0])
-	projmat = projectionMatrix(cam.data)
+def getMVP(obj, cam, scale = [0.5, 0.5], offset = [0.5,0.5,0]):
+	#projmat = projectionMatrix(cam.data, [0.5, 0.5], [0.5, 0.5, 0.0])
+
+	#scalemat = Make2DScaleMatrix(scale)
+	transmat = Matrix.Translation(offset)	
+	projmat = projectionMatrix(cam.data, scale) # * transmat.transposed()
 	cam_matrix = cam.matrix_world
+	print("MVPing")
 	#cam_matrix = cam.matrix_world
 	#cam_matrix_cheeky_translate = Matrix.Translation(cam_matrix.translation).transposed()
 	#cam_matrix = cam.matrix_world.to_3x3().to_4x4() #* cam_matrix_cheeky_translate
 	#return obj.matrix_world.transposed() * cam_matrix * projmat * scalemat.transposed() * transmat.transposed()
+	#return cam_matrix * projmat * scalemat.transposed() * transmat.transposed()
+	return projmat
 	
 
 	#return scalemat * transmat
-	return projmat * scalemat.transposed() * transmat.transposed()
+	#aareturn projmat * scalemat.transposed() * transmat.transposed()
 	
 
 	#return transmat * scalemat * projmat.inverted()
@@ -215,11 +204,28 @@ class ApplyBackProjection(bpy.types.Operator):
 		ApplyBackProjectionToSelected(scene.camera, True)
 		return {'FINISHED'}
 
+class ApplyBackProjectionNoMod(bpy.types.Operator):
+	bl_idname = "view3d.apply_back_projection_no_mod"
+	bl_label = "Apply back projection direct (not using modifier)"
+	trigger = BoolProperty(default = False)
+	mode = BoolProperty(default = False)
+		 
+	def execute(self, context):
+		print("About to apply back projection without modifier")		
+		ApplyBackProjectionToSelected(bpy.context.scene.camera, False)
+		return {'FINISHED'}
+
+
+
+
 class RenderScene(bpy.types.Operator):
 	bl_idname = "view3d.render_scene"
 	bl_label = "Render Scene"
 	trigger = BoolProperty(default = False)
 	mode = BoolProperty(default = False)
+
+
+
 		 
 	def execute(self, context):
 		print("About to render scene")		
@@ -227,11 +233,13 @@ class RenderScene(bpy.types.Operator):
 		ApplyBackProjectionTo(bpy.context.scene.camera, False, lambda ob: True)
 	
 		image = EnsureImage(LAYER_BACKGROUND)
+		image.save() #presave, make sure save flag isn't set (which prevents reloading)
 		image.filepath = getLayerFilename(LAYER_BACKGROUND)
 		filename = getLayerFilename(LAYER_BACKGROUND)
 		bpy.ops.render.render( write_still=True, layer="RenderLayer") 
-
+		print("About to save render as " + filename)
 		bpy.data.images['Render Result'].save_render(filename)
+		print("Image filename :" + filename)
 		image.reload()
 
 		mat = FindOrCreateProjectionMaterial(image)
@@ -262,6 +270,7 @@ class CSaveFBX(bpy.types.Operator):
 		print("About to save FBX")
 		
 		return {'FINISHED'}
+
 
 
 
@@ -296,8 +305,10 @@ class CRestoreSourceMaterials(bpy.types.Operator):
 def copylist(inlist):
 	return [i in inlist]
 
-def GetSceneMaterialFilename(scenename):	
-	return os.path.join(os.getenv("HOME"), scenename + "_materials.csv")
+def GetSceneMaterialFilename(scenename):		
+	home = expanduser("~")
+	print("home: " + home)
+	return os.path.join(home, scenename + "_materials.csv")
 
 def SceneMaterialsToMap():	
 	materialdb = {}
@@ -308,15 +319,20 @@ def SceneMaterialsToMap():
 
 def SerialiseMaterials():
 	MaterialMap = SceneMaterialsToMap()
-	s = open(GetSceneMaterialFilename(bpy.context.scene.name), "w")
+	fname = GetSceneMaterialFilename(bpy.context.scene.name)
+	print("Saving materials to: " + fname)
+	s = open(fname, "w")
 	json.dump(MaterialMap, s)
 	s.close()	
 
-def LoadMaterials():
+def LoadMaterials():	
 	return json.load(open(GetSceneMaterialFilename(bpy.context.scene.name), "r"))	
+	
+
 
 
 def SetPreviewMaterial(mat):
+
 	RestoreSourceMaterials() #make sure we're not saving the wrong ones	
 	SerialiseMaterials() #save current materials off to json file
 	for ob in bpy.data.objects:
@@ -328,17 +344,22 @@ def SetPreviewMaterial(mat):
 
 
 def RestoreSourceMaterials():
-	GlobalOldMaterials = LoadMaterials() #retrieve current materials from json file
-	for ob in bpy.data.objects:
-		if isinstance(ob.data, Mesh):
-			try:
-				oldmaterials =  GlobalOldMaterials[ob.name]
-				ob.data.materials.clear()			
-				for mat in oldmaterials:
-					ob.data.materials.append(bpy.data.materials[mat])
-			except:
-				print("Old scene not found")
-	GlobalOldMaterials.clear()
+	try:
+		materials = LoadMaterials() #retrieve current materials from json file
+		for ob in bpy.data.objects:
+			if isinstance(ob.data, Mesh):
+				try:
+					oldmaterials =  materials[ob.name]
+					if len(oldmaterials) > 0:
+						ob.data.materials.clear()			
+						for mat in oldmaterials:
+							ob.data.materials.append(bpy.data.materials[mat])
+				except:
+					print("Old scene not found")
+		GlobalOldMaterials.clear()
+	except:
+		print("failed to load material file.")
+	
 
 
 def ensureUVChannels(obj):
@@ -403,39 +424,47 @@ def projectUVs(obj, matrix):
 		uv_layer = bmesh.loops.layers.uv['ProjUV']
 		uvw_layer = bmesh.loops.layers.uv['ProjUVZW']
 		uvdivw_layer = bmesh.loops.layers.uv['ProjUVdivW']
+		fidx = 0
+		fcount = len(bmesh.faces)
 		for f in bmesh.faces:
+			vidx = 0
+			vcount = len(f.loops)
 			for l in f.loops:
 				luv = l[uv_layer]
 				uvw = l[uvw_layer]
-				luvdivw = l[uvdivw_layer]
-				
+				luvdivw = l[uvdivw_layer]				
 				#if luv.select:
 					# apply the location of the vertex as a UV
 				p = l.vert.co
+				#print("Processing vertex %i/%i of poly %i/%i : " % (vidx, vcount, fidx, fcount)+ str(p))
 				vres = Vector([p.x, p.y, p.z, 1.0]) * matrix
 				
 				w = vres.w if vres.w != 0.0 else 1.0 				
 				luvdivw.uv = vres.xy / w								
 				luv.uv = vres.xy
 				uvw.uv = [vres.z, w]
-
+				vidx = vidx + 1
+			++fidx
+	
 		endMeshUpdate(obj, bmesh)
+	
 	else:
 		print(str(obj) + " is not a mesh object")
 
-def performBackProjectionOnObjectActiveView(obj):
+def performBackProjectionOnObjectActiveView(obj):		
 	MVP = getActiveViewMVP(obj)
 	projectUVs(obj, MVP)
 
 
-def performBackProjectionOnObject(obj, camera, uvoffset = [0,0], scale = 0.5,imageSize=[1024,1024]):
-	MVP = getMVP( obj, camera, scale)
+def performBackProjectionOnObject(obj, camera, uvoffset = [0.5,0.5,0.0], scale = [0.5, 0.5, 1.0],imageSize=[1024,1024]):
+	
+	print("About to apply uvs with offset:%f,%f and scale: %f,%f" % (uvoffset[0], uvoffset[1], scale[0], scale[1]))
+	MVP = getMVP( obj, camera, scale, uvoffset)
 	projectUVs(obj, MVP)
  
 
 def ApplyBackProjectionToObject(obj, camera, useModifier = True):
-	if isinstance(obj.data, bpy_types.Mesh):        
-		print("got here")
+	if isinstance(obj.data, bpy_types.Mesh):        		
 		me = obj.data
 		scene = bpy.context.scene
 		ensureUVChannels(obj)
@@ -461,23 +490,101 @@ def ApplyBackProjectionToObject(obj, camera, useModifier = True):
 			uvproj.uv_layer='ProjUV'
 		else:
 			print("Baking UVs on " + obj.name)
-			performBackProjectionOnObject(obj, camera, [0,0], 0.5, image.size)
 
-
-
+			offset = [0.5, 0.5, 0.0]
+			try:
+				offset = bpy.context.scene['Offset']
+			except:
+				pass
+			scale = [0.5, 0.5, 0.0]
+			try:
+				scale = bpy.context.scene['Scale']
+			except:
+				pass
+				
+			performBackProjectionOnObject(obj, camera, offset, scale, image.size)
+			print("Finished backing UVs")
 
 #more to remind myself about bpy.context.active_object
 def ApplyBackProjectionToCurrent(camera):
 	ApplyBackProjectionToObject(bpy.context.active_object, camera)
 
 def ApplyBackProjectionTo(camera, usemodifier, func):
+	i = 0
+	count =  len(bpy.data.objects)
 	for ob in bpy.data.objects:
-		if func(ob) and isinstance(ob.data, Mesh):						
+		print("Object name:" + ob.name)
+
+	for ob in bpy.data.objects:
+		print("Processing object %i of %i" % (i, count))
+		if isinstance(ob.data, Mesh) and func(ob):		
 			ApplyBackProjectionToObject(ob, camera, usemodifier)
+		print("Finished processing object %i of %i (%s)" % (i, count, ob.name) )		
+		i = i + 1
+	print("Finished processing objects")		
 
 
 def ApplyBackProjectionToSelected(camera, usemodifier):
 	ApplyBackProjectionTo(camera, usemodifier, lambda ob: ob.select)
+
+
+#
+#    Store properties in the active scene
+#
+def initSceneProperties():
+	print("Initialising properties")
+	bpy.types.Scene.MyInt = bpy.props.IntProperty(
+		name = "Integer", 
+		description = "Enter an integer")
+	
+	bpy.types.Scene.MyFloat = bpy.props.FloatProperty(
+		name = "Float", 
+		description = "Enter a float",
+		default = 33.33,
+		min = -100,
+		max = 100)
+
+
+	bpy.types.Scene.Scale = bpy.props.FloatVectorProperty(
+		name = "Scale", 
+		description = "Scale Value",
+		subtype="TRANSLATION",
+		default = (0.5, 0.5,1.0),
+		min = 0.001,
+		max = 2.0)
+	
+
+	bpy.types.Scene.Offset = bpy.props.FloatVectorProperty(
+		name = "Offset", 
+		description = "Offset",
+		subtype="TRANSLATION",
+		default = (0.5, 0.5,0.0),
+		min = -1.0,
+		max = 1.0)	
+
+	bpy.types.Scene.MyBool = bpy.props.BoolProperty(
+		name = "Boolean", 
+		description = "True or False?")
+
+
+	bpy.types.Scene.MyEnum = EnumProperty(
+		items = [('Eine', 'Un', 'One'), 
+				 ('Zwei', 'Deux', 'Two'),
+				 ('Drei', 'Trois', 'Three')],
+		name = "Ziffer")
+
+ 
+	bpy.types.Scene.MyString = bpy.props.StringProperty(
+		name = "String")
+	return
+
+
+def Equality(a,b):
+	for i in range(len(a)):
+		if a[i] != b[i]:
+			return False
+	return True
+
 
 
 class VIEW3D_PT_BackProjector(bpy.types.Panel):
@@ -487,10 +594,40 @@ class VIEW3D_PT_BackProjector(bpy.types.Panel):
 
 	bl_category = "OverPaint"
 	bl_label = "OverPaint"
+	
+	initSceneProperties()
+	#def __init__(self):
+	#	print("Initialising BackProjector")
+	#	
+
+
+	@classmethod
+	def poll(cls, context):
+		return context.active_object is not None
+ 
+	def execute(self, context):
+		if self.Initialised == False:
+			print("initialising")
+			self.Initialised = True			
+		return {'FINISHED'}
+
+	#@classmethod
+	#def poll(self, context):
+		#return (context.object is not None)
+		
+		
+	def exec(self, context):		
+		print("Executing. Yeaaaah!")
+
 
 	def draw(self, context):
+		global lastScale
+		global lastOffset
+		global count
+		scene = bpy.context.scene
+				
 		layout = self.layout
-
+		scn = context.scene
 		row = layout.row(align=True)
 		row.alignment = 'LEFT'
 
@@ -506,14 +643,24 @@ class VIEW3D_PT_BackProjector(bpy.types.Panel):
 		row.operator("view3d.apply_back_projection", icon="MOD_UVPROJECT")
 		row.operator("view3d.render_scene", icon="MOD_UVPROJECT")
 		row = col.row()    
+		row.operator("view3d.apply_back_projection_no_mod", icon="MOD_UVPROJECT")
+
+		row = col.row()    
 		row.operator("view3d.save_psd", icon="MOD_UVPROJECT")
 		row.operator("view3d.save_fbx", icon="MOD_UVPROJECT")
 		row = col.row()    
 		row.label(text="Rendered material preview:")
 		row = col.row()    
-		split = layout.split()
+		
 		row.operator("view3d.set_preview_material", icon="MOD_UVPROJECT")
 		row.operator("view3d.restore_source_material", icon="MOD_UVPROJECT")
+		row = col.row()    
+		row.label(text="Render offsets:")
+		row = col.row()    		
+		row.prop(scn, 'Scale')
+		row = col.row()    		
+		row.prop(scn, 'Offset')				
+
 
 
 		col.alignment = 'EXPAND'
@@ -525,6 +672,7 @@ class VIEW3D_PT_BackProjector(bpy.types.Panel):
 def register():
 	bpy.utils.register_class(VIEW3D_PT_BackProjector)
 	bpy.utils.register_class(ApplyBackProjection)
+	bpy.utils.register_class(ApplyBackProjectionNoMod)
 	bpy.utils.register_class(RenderScene)
 	bpy.utils.register_class(CSavePSD)
 	bpy.utils.register_class(CSaveFBX)
@@ -533,8 +681,8 @@ def register():
 
 def unregister():
 	bpy.utils.unregister_class(VIEW3D_PT_BackProjector)
-
 	bpy.utils.unregister_class(ApplyBackProjection)
+	bpy.utils.unregister_class(ApplyBackProjectionNoMod)
 	bpy.utils.unregister_class(RenderScene)
 	bpy.utils.unregister_class(CSavePSD)
 	bpy.utils.unregister_class(CSaveFBX)
