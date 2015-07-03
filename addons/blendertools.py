@@ -188,6 +188,7 @@ def restoreRenderBounds():
 	bpy.context.scene.render.border_min_y = 0
 	bpy.context.scene.render.border_max_y = 1
 
+
 def replaceDuplicatedMaterialReferences():
 	for o in bpy.data.objects:
 		try:

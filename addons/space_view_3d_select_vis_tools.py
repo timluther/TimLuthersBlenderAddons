@@ -211,17 +211,6 @@ class DisableRigidBodyAllSelected(bpy.types.Operator):
 	def execute(self, context):
 		disablerigidbodyonselected()     
 		return {'FINISHED'}   
-	
-#SelectionHelp
-class SelectionHelp(bpy.types.Operator):
-	"""Operator that runs Fast navigate in modal mode"""
-	bl_idname = "view3d.fast_navigate_operator"
-	bl_label = "Fast Navigate"
-	trigger = BoolProperty(default = False)
-	mode = BoolProperty(default = False)
-	 
-	def execute(self, context):        
-		a = 10
 
 class AddLocationKeyframes(bpy.types.Operator):
 	bl_idname= "view3d.add_location_keyframes"
@@ -298,7 +287,6 @@ class VIEW3D_PT_SelectionHelp(bpy.types.Panel):
 		scene = context.scene
 		row = layout.row(align=True)
 		row.alignment = 'LEFT'
-		row.operator("selection.fast_navigate_operator", icon = 'TEXTURE_SHADED')
 		row = layout.row()
 		row.operator("view3d.select_all_children", icon = "TEXTURE_SHADED")
 		
@@ -353,8 +341,7 @@ class VIEW3D_PT_KeyframeHelp(bpy.types.Panel):
 		# Tools   
 		scene = context.scene
 		row = layout.row(align=True)
-		row.alignment = 'LEFT'
-		row.operator("selection.fast_navigate_operator", icon ='TEXTURE_SHADED')
+		row.alignment = 'LEFT'		
 		
 		layout.label("Add the following properties as keyframe for selected objects:")
 		row = layout.row()
