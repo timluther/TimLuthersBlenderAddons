@@ -28,7 +28,6 @@ LAYER_PICKUP	 = 2
 
 layer_names = ["background", "popped_out", "picked_up"]
 
-
 class viewportParams:
 
 	def __init__(self, zoom=1.0, offset=[0, 0]):
@@ -129,7 +128,7 @@ def projectionMatrix(camd, scale = [1, 1], trans = [0, 0, 0], aspect = [1, 1]):
 	r = bpy.context.scene.render
 
 	print("Using resolution of %s:%s for render" % (r.resolution_x, r.resolution_y))
-	left, right, bottom, top = viewPlane(camd, r.resolution_x * scale[0], r.resolution_y * scale[1], aspect[0], aspect[1], params = viewportParams())
+	left, right, bottom, top = viewPlane(camd, r.resolution_x, r.resolution_y , aspect[0], aspect[1], params = viewportParams())
 
 	farClip, nearClip = camd.clip_end, camd.clip_start
 
@@ -138,18 +137,10 @@ def projectionMatrix(camd, scale = [1, 1], trans = [0, 0, 0], aspect = [1, 1]):
 	Zdelta = farClip - nearClip
 	print("delta: %f ,%f, %f Trans: %f, %f, %f\n" % (Xdelta, Ydelta, Zdelta, trans[0], trans[1], trans[2]))
 	return Matrix([
-				[(nearClip * 2 / Xdelta), 0, 0, 0],
-				[0, (nearClip * 2 / Ydelta), 0, 0],
+				[(nearClip * 2 / Xdelta) * scale[0], 0, 0, 0],
+				[0, (nearClip * 2 / Ydelta) * scale[1], 0, 0],
 				[(right + left) / Xdelta, (top + bottom) / Ydelta, (farClip + nearClip) / Zdelta, -1],
-				[trans[0], trans[1], trans[2] + (-2 * nearClip * farClip) / Zdelta, 1]
-				])
-
-"""return Matrix([
-				[(nearClip * 2 / Xdelta), 0, 0, 0],
-				[0, (nearClip * 2 / Ydelta), 0, 0],
-				[(right + left) / Xdelta, (top + bottom) / Ydelta, (farClip + nearClip) / Zdelta, -1],
-				[trans[0], trans[1], trans[2] + (-2 * nearClip * farClip) / Zdelta, 1]
-				])"""
+				[0, 0, 0 + (-2 * nearClip * farClip) / Zdelta, 1]]) * Matrix.Translation(trans).transposed()
 
 def getActiveView():
 	for area in bpy.context.screen.areas:
@@ -177,23 +168,30 @@ def getActiveViewMVP(obj):
 	projmat = getActiveViewMatrix()
 	return obj.matrix_world.transposed() * projmat
 
-
-
 def getLayerFilename(layer):
 	return layer_names[layer] + "_layer.png"
 
 def getLayerFilepath(layer):
-	return os.path.splitext(bpy.data.filepath)[0] + getLayerFilename(layer)
-
+	return os.path.splitext(bpy.data.filepath)[0] + "_" + getLayerFilename(layer)
 
 def EnsureImage(layer):
 	layer_name = getLayerFilename(layer)
+	print("trying to ensure image " + layer_name)
 	try:
 		image = bpy.data.images[layer_name]
+		print("Found image " + image.name)
+		if image.size == (0, 0):
+			print("Image is empty, removing")
+			image.user_clear()
+			bpy.data.images.remove(image)
+			scene = bpy.context.scene
+			image = bpy.data.images.new(layer_name, scene.render.resolution_x, scene.render.resolution_y)
+
 	except:
+		print("Creating new image")
 		scene = bpy.context.scene
 		image = bpy.data.images.new(layer_name, scene.render.resolution_x, scene.render.resolution_y)
-		image.filepath = getLayerFilepath(layer)
+	image.filepath = getLayerFilepath(layer)
 	return image
 
 class ApplyBackProjection(bpy.types.Operator):
@@ -228,26 +226,31 @@ class RenderScene(bpy.types.Operator):
 	def execute(self, context):
 		print("About to render scene")
 		RestoreSourceMaterials()
-		ApplyBackProjectionTo(bpy.context.scene.camera, False, lambda ob: True)
-		bpy.context.scene.layers[0] = True
-		bpy.context.scene.layers[1] = False
+		SerialiseMaterials()  	  # save current materials off to json file
+		scene = bpy.context.scene
+		ApplyBackProjectionTo(scene.camera, False, lambda ob: True)
+		setCameraRayVisibility(True, func = lambda ob: ob.layers[0] == True)
+		setCameraRayVisibility(False, func = lambda ob: ob.layers[1] == True)
 		image = EnsureImage(LAYER_BACKGROUND)
-		image.save()  # presave, make sure save flag isn't set (which prevents reloading)
+		scene.render.filepath = image.filepath
 		bpy.ops.render.render(write_still = True, layer = "RenderLayer")
 		print("About to save render as " + image.filepath)
-		bpy.data.images['Render Result'].save_render(image.filepath)
-		image.reload()
 
-		bpy.context.scene.layers[0] = False
-		bpy.context.scene.layers[1] = True
+		image.save_render(image.filepath)
+		mat = FindOrCreateProjectionMaterial(image)
+		SetPreviewMaterial(mat, lambda ob: ob.layers[0] == True)
+		print("Completed")
+		setCameraRayVisibility(True, func = lambda ob: ob.layers[1] == True)
+		setCameraRayVisibility(False, func = lambda ob: ob.layers[0] == True)
 		image = EnsureImage(LAYER_POPPED_OUT)
-		image.save()  # presave, make sure save flag isn't set (which prevents reloading)
+		scene.render.filepath = image.filepath
 		bpy.ops.render.render(write_still = True, layer = "RenderLayer")
 		print("About to save render as " + image.filepath)
-		bpy.data.images['Render Result'].save_render(image.filepath)
-		image.reload()
+		image.save_render(image.filepath)
+		print("Completed")
 		mat = FindOrCreateProjectionMaterial(image)
-		SetPreviewMaterial(mat)
+		SetPreviewMaterial(mat, lambda ob: ob.layers[1] == True)
+		setCameraRayVisibility(True, lambda ob: ob.layers[0] == True)
 		#bpy.ops.render.render( write_still=True, layer="Overlay")
 		#bpy.data.images['Render Result'].save_render("C:\\Users\\Tim\\Google Drive\\OysterWorld\\HOPA\\BlenderOutput\\layer1.png")
 		return {'FINISHED'}
@@ -280,9 +283,15 @@ class CSetPreviewMaterial(bpy.types.Operator):
 
 	def execute(self, context):
 		print("About to set preview material")
+
+		RestoreSourceMaterials()  # make sure we're not saving the wrong ones
+		SerialiseMaterials()  	  # save current materials off to json file
 		image = EnsureImage(LAYER_BACKGROUND)
 		mat = FindOrCreateProjectionMaterial(image)
-		SetPreviewMaterial(mat)
+		SetPreviewMaterial(mat, lambda ob: ob.layers[0] == True)
+		image = EnsureImage(LAYER_POPPED_OUT)
+		mat = FindOrCreateProjectionMaterial(image)
+		SetPreviewMaterial(mat, lambda ob: ob.layers[1] == True)
 		return {'FINISHED'}
 
 class CRestoreSourceMaterials(bpy.types.Operator):
@@ -323,11 +332,10 @@ def LoadMaterials():
 	print("Opening material file at: " + fname)
 	return json.load(open(fname, "r"))
 
-def SetPreviewMaterial(mat):
-	RestoreSourceMaterials()  # make sure we're not saving the wrong ones
-	SerialiseMaterials()  	  # save current materials off to json file
+def SetPreviewMaterial(mat, func = lambda ob: True):	
 	for ob in bpy.data.objects:
-		if isinstance(ob.data, Mesh):
+		if isinstance(ob.data, Mesh) and func(ob):
+			print("Setting material of " + ob.name + " to " + mat.name)
 			oldCount = len(ob.data.materials)
 			ob.data.materials.clear()
 			for i in range(oldCount):
@@ -373,10 +381,74 @@ def ensureUVChannels(obj):
 		zwchan = obj.data.uv_textures.new('ProjUVZW')
 	return uvchan, zwchan, uvchandivw
 
+
+def createNode(group, typeName, pos, name = ""):
+	node = group.nodes.new(type = typeName)
+	if name != "":
+		node.name = name
+	node.location = pos
+	return node
+
+def removeAllUnusedNodeGroups():
+	count = len(bpy.data.node_groups)
+	offset = 0
+	while count > 0:
+		try:
+			bpy.data.node_groups.remove(bpy.data.node_groups[offset])
+		except:
+			print("Cannot remove " + bpy.data.node_groups[offset].name)
+			offset = offset + 1
+		count = count - 1
+
+def CreatePerspectiveCorrectGroup(name):
+	uvp = bpy.data.node_groups.new(name, 'ShaderNodeTree')
+	xgap = 200
+	cx = 0
+	ygap = 200
+
+	uv_xyinput = createNode(uvp, "ShaderNodeAttribute", (cx, 0))
+	uv_xyinput.attribute_name = 'ProjUV'
+	uv_zwinput = createNode(uvp, "ShaderNodeAttribute", (cx, ygap))
+	uv_zwinput.attribute_name = 'ProjUVZW'
+	cx += xgap
+	sepUVXY = createNode(uvp, "ShaderNodeSeparateXYZ", (cx, 0))
+	sepUVZW = createNode(uvp, "ShaderNodeSeparateXYZ", (cx, ygap))
+	cx += xgap
+	divideX = createNode(uvp, "ShaderNodeMath", (cx, 0), "DivideX")
+	divideX.operation = 'DIVIDE'
+	divideY = createNode(uvp, "ShaderNodeMath", (cx, ygap), "DivideY")
+	divideY.operation = 'DIVIDE'
+	cx += xgap
+	combineXYZ = createNode(uvp, "ShaderNodeCombineXYZ", (cx, 0))
+	output = uvp.nodes.new('NodeGroupOutput')
+	cx += xgap
+	output.location = (cx, 0)
+	uvp.links.new(uv_xyinput.outputs[1], sepUVXY.inputs[0])
+	uvp.links.new(uv_zwinput.outputs[1], sepUVZW.inputs[0])
+	uvp.links.new(sepUVXY.outputs[0], divideX.inputs[0])
+	uvp.links.new(sepUVXY.outputs[1], divideY.inputs[0])
+	uvp.links.new(sepUVZW.outputs[1], divideX.inputs[1])
+	uvp.links.new(sepUVZW.outputs[1], divideY.inputs[1])
+	uvp.links.new(divideX.outputs[0], combineXYZ.inputs[0])
+	uvp.links.new(divideY.outputs[0], combineXYZ.inputs[1])
+	uvp.links.new(sepUVXY.outputs[2], combineXYZ.inputs[2])
+	uvp.links.new(combineXYZ.outputs[0], output.inputs[0])
+	return uvp
+
+def FindOrCreateProjUVGroup():
+	try:
+		uvp = bpy.data.node_groups['UVPerspectiveCorrect']
+		return uvp
+	except:
+		return CreatePerspectiveCorrectGroup('UVPerspectiveCorrect')
+
 def FindOrCreateProjectionMaterial(image):
 	matname = "OverpaintMaterial_%s" % image.name
 	try:
 		mat = bpy.data.materials[matname]
+		nodes = mat.node_tree.nodes
+		imagetex = mat.node_tree.nodes.get("Image Texture")
+		imagetex.image = image
 		return mat
 	except:
 		mat = bpy.data.materials.new(matname)
@@ -387,9 +459,11 @@ def FindOrCreateProjectionMaterial(image):
 		node_texture.image = image
 		links = mat.node_tree.links
 		links.new(node_texture.outputs[0], diffuse.inputs[0])
-		node_attribute = nodes.new(type="ShaderNodeAttribute")
-		node_attribute.attribute_name = "ProjUV"
-		links.new(node_attribute.outputs[1], node_texture.inputs[0])
+		projectedUV = FindOrCreateProjUVGroup()
+		group_instance = nodes.new(type="ShaderNodeGroup")
+		group_instance.node_tree = projectedUV
+
+		links.new(group_instance.outputs[0], node_texture.inputs[0])
 		return mat
 
 def projectUVs(obj, objToViewMatrix, projectionMatrix):
@@ -442,19 +516,19 @@ def performBackProjectionOnObjectActiveView(obj):
 	projectUVs(obj, MVP)
 
 
-def performBackProjectionOnObject(obj, camera, uvoffset = [0.5, 0.5, 0.0], scale = [0.5, 0.5, 1.0], aspect=[1, 1], imageSize=[1024, 1024]):
+def performBackProjectionOnObject(obj, camera, uvoffset = [0.5, 0.5, 0.0], scale = [0.5, 0.5, 1.0], aspect=[1, 1]):
 	print("About to apply uvs with offset:%f,%f and scale: %f,%f and aspect ratios (?)%f %f\n" % (uvoffset[0], uvoffset[1], scale[0], scale[1], aspect[0], aspect[1]))
 	Projection = projectionMatrix(camera.data, scale, uvoffset, aspect)
 	ObjToView =  (bpy.context.scene.camera.matrix_world.inverted() * obj.matrix_world).transposed()
 	projectUVs(obj, ObjToView, Projection)
 
-def ApplyBackProjectionToObject(obj, camera, useModifier = True):
+def ApplyBackProjectionToObject(obj, camera, useModifier = True,  layer= LAYER_BACKGROUND):
 	if isinstance(obj.data, bpy_types.Mesh):
 		ensureUVChannels(obj)
-		image = EnsureImage(LAYER_BACKGROUND)
-		ar = 1.0 if image is None else image.size[1] / image.size[0]
-
 		if useModifier:
+			image = EnsureImage(layer)
+			ar = 1.0 if image is None and image.size[0] != 0 else image.size[1] / image.size[0]
+
 			print("Using modifier on " + obj.name)
 			try:
 				uvproj = obj.modifiers['UVProject']
@@ -490,14 +564,14 @@ def ApplyBackProjectionToObject(obj, camera, useModifier = True):
 			except:
 				pass
 
-			performBackProjectionOnObject(obj, camera, offset, scale, aspect, image.size)
+			performBackProjectionOnObject(obj, camera, offset, scale, aspect)
 			print("Finished backing UVs")
 
 #more to remind myself about bpy.context.active_object
 def ApplyBackProjectionToCurrent(camera):
 	ApplyBackProjectionToObject(bpy.context.active_object, camera)
 
-def ApplyBackProjectionTo(camera, usemodifier, func):
+def ApplyBackProjectionTo(camera, usemodifier, func,  layer= LAYER_BACKGROUND):
 	i = 0
 	count =  len(bpy.data.objects)
 	for ob in bpy.data.objects:
@@ -506,14 +580,14 @@ def ApplyBackProjectionTo(camera, usemodifier, func):
 	for ob in bpy.data.objects:
 		print("Processing object %i of %i" % (i, count))
 		if isinstance(ob.data, Mesh) and func(ob):
-			ApplyBackProjectionToObject(ob, camera, usemodifier)
+			ApplyBackProjectionToObject(ob, camera, usemodifier, layer)
 		print("Finished processing object %i of %i (%s)" % (i, count, ob.name))
 		i = i + 1
 	print("Finished processing objects")
 
 
-def ApplyBackProjectionToSelected(camera, usemodifier):
-	ApplyBackProjectionTo(camera, usemodifier, lambda ob: ob.select)
+def ApplyBackProjectionToSelected(camera, usemodifier, layer = LAYER_BACKGROUND):
+	ApplyBackProjectionTo(camera, usemodifier, lambda ob: ob.select, layer)
 
 
 #
@@ -532,15 +606,13 @@ def initSceneProperties():
 		min = -100,
 		max = 100)
 
-
 	bpy.types.Scene.Scale = bpy.props.FloatVectorProperty(
 		name = "Scale",
 		description = "Scale Value",
 		subtype="TRANSLATION",
-		default = (0.5, 0.5,1.0),
+		default = (0.5, 0.5, 1.0),
 		min = 0.001,
 		max = 2.0)
-
 
 	bpy.types.Scene.Offset = bpy.props.FloatVectorProperty(
 		name = "Offset",

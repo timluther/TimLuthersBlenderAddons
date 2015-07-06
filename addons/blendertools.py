@@ -5,15 +5,70 @@ from mathutils import *
 import bmesh
 import sys
 import os
+import re
+
+def printMaterials():
+	for i in bpy.data.materials:
+		print(i)
+
+def printTextures():
+	for i in bpy.data.textures:
+		print(i)
+
+def printImages():
+	for i in bpy.data.images:
+		print("%s, w:%i h:%i\n" % (i.filepath, i.size[0], i.size[1]))
 
 def removeimage(img):
 	imgobj = bpy.data.images[img]
 	imgobj.user_clear()
 	bpy.data.images.remove(imgobj)
 
+def removeReferenceToMaterial(mat):
+	for ob in bpy.data.objects:
+		if isinstance(ob.data, Mesh):
+			material_count = len(ob.data.materials)
+			keepList = [bpy.data.materials[imat.name] for imat in ob.data.materials if imat.name != mat.name]
+			ob.data.materials.clear()
+			for i in keepList:		
+				ob.data.materials.append(i)
+			if len(keepList) < material_count:
+				print("Removed material reference from " + ob.name)
+
+def removeimages(regexstr):
+	regex = re.compile(regexstr)
+	try:
+		materials = [mat for mat in bpy.data.materials if re.match(regex, mat.name)]
+	except:
+		print("Now why would this fail?")
+	for i in materials:
+		try:
+			removeReferenceToMaterial(i)
+			i.user_clear()
+			bpy.data.materials.remove(i)
+		except:
+			print("Problem removing material " + i.name)
+
+
+
+def removematerials(regexstr):
+	regex = re.compile(regexstr)
+	try:
+		materials = [mat for mat in bpy.data.materials if re.match(regex, mat.name)]
+	except:
+		print("Now why would this fail?")
+	for i in materials:
+		try:
+			removeReferenceToMaterial(i)
+			i.user_clear()
+			bpy.data.materials.remove(i)
+		except:
+			print("Problem removing material " + i.name)
+
+
 def removematerial(mat):
 	matobj = bpy.data.materials[mat]
-	matobj.user_clear()
+	removeReferenceToMaterial(matobj)	
 	bpy.data.materials.remove(matobj)
 
 
@@ -275,17 +330,17 @@ def printUniqueMeshes(mt, threshold):
 
 
 def contains(list, filter):
-    for x in list:
-        if filter(x):
-            return True
-    return False
+	for x in list:
+		if filter(x):
+			return True
+	return False
 
 
 def find(list, filter):
-    for x in list:
-        if filter(x):
-            return x
-    return None
+	for x in list:
+		if filter(x):
+			return x
+	return None
 
 
 def removeDuplicateMeshReferences(duplicateAmountThreshold = 1):
@@ -445,19 +500,20 @@ def createuvs():
 		if ob.select == True:
 			ensureUVs(ob)		
 
-def hideselected():
+def hideselected( func = lambda ob: ob.select):
 	for ob in bpy.data.objects:
-		if ob.select == True:
+		if func(ob):
 			ob.hide = True
 
-def showselected():
+def showselected( func = lambda ob: ob.select):
 	for ob in bpy.data.objects:
-		if ob.select == True:
+		if func(ob):
 			ob.hide = False
 
-def showall():
+def showall(func = lambda ob: True):
 	for ob in bpy.data.objects:     
-		ob.hide = False     
+		if func(ob):
+			ob.hide = False     
 
 def rendershowselected():
 	for ob in bpy.data.objects:
@@ -465,15 +521,15 @@ def rendershowselected():
 			ob.hide_render = False
 	bpy.data.scenes[0].update()
 
-def setCameraRayVisibility(status):
+def setCameraRayVisibility(status, func = lambda ob: ob.select):
 	for ob in bpy.data.objects:
-		if ob.select == True:
+		if isinstance(ob.data, Mesh) and func(ob):
 			ob.cycles_visibility.camera = status
 	bpy.data.scenes[0].update()
 
-def renderhideselected():
+def renderhideselected(func = lambda ob: ob.select):
 	for ob in bpy.data.objects:
-		if ob.select == True:
+		if func(ob):
 			ob.hide_render = True
 	bpy.data.scenes[0].update()
 
