@@ -7,6 +7,10 @@ import sys
 import os
 import re
 
+def printContents(a):
+	for i in a:
+		print(i)
+
 def printMaterials():
 	for i in bpy.data.materials:
 		print(i)
@@ -19,7 +23,7 @@ def printImages():
 	for i in bpy.data.images:
 		print("%s, w:%i h:%i\n" % (i.filepath, i.size[0], i.size[1]))
 
-def removeimage(img):
+def removeImage(img):
 	imgobj = bpy.data.images[img]
 	imgobj.user_clear()
 	bpy.data.images.remove(imgobj)
@@ -35,7 +39,22 @@ def removeReferenceToMaterial(mat):
 			if len(keepList) < material_count:
 				print("Removed material reference from " + ob.name)
 
-def removeimages(regexstr):
+def removeImages(regexstr):
+	regex = re.compile(regexstr)
+	try:
+		images = [img for img in bpy.data.images if re.match(regex, img.name)]
+	except:
+		print("Now why would this fail?")
+	for i in images:
+		try:
+			print("Removing " + i.name)
+			#removeReferenceToMaterial(i)
+			i.user_clear()
+			bpy.data.images.remove(i)
+		except:
+			print("Problem removing material " + i.name)
+
+def removeMaterials(regexstr):
 	regex = re.compile(regexstr)
 	try:
 		materials = [mat for mat in bpy.data.materials if re.match(regex, mat.name)]
@@ -50,46 +69,30 @@ def removeimages(regexstr):
 			print("Problem removing material " + i.name)
 
 
-
-def removematerials(regexstr):
-	regex = re.compile(regexstr)
-	try:
-		materials = [mat for mat in bpy.data.materials if re.match(regex, mat.name)]
-	except:
-		print("Now why would this fail?")
-	for i in materials:
-		try:
-			removeReferenceToMaterial(i)
-			i.user_clear()
-			bpy.data.materials.remove(i)
-		except:
-			print("Problem removing material " + i.name)
-
-
-def removematerial(mat):
+def removeMaterial(mat):
 	matobj = bpy.data.materials[mat]
 	removeReferenceToMaterial(matobj)	
 	bpy.data.materials.remove(matobj)
 
 
-def findduplicateimages():
+def findDuplicateImages():
 	for i in bpy.data.images:
 		if ".0" in i.name:
 			print(i.name)
 
-def removeduplicateimages():
+def removeDuplicateImages():
 	for i in bpy.data.images:
 		if ".0" in i.name:
 			print("Removing: " + i.name)
-			removeimage(i.name)
+			removeImage(i.name)
 
-def removeduplicatematerials():
+def removeDuplicateMaterials():
 	for i in bpy.data.materials:
 		if ".0" in i.name:
 			print("Removing: " + i.name)
-			removematerial(i.name)
+			removeaaterial(i.name)
 
-def selectallobjectswithduplicates():
+def selectAllObjectsWithDuplicates():
 	for m in bpy.data.objects:
 		for ms in m.material_slots:
 			if ".0" in ms.name:
@@ -177,7 +180,14 @@ def mergeBounds(a, b):
 	return ((min(a[0][0], b[0][0]), min(a[0][1], b[0][1])), (max(a[1][0], b[1][0]), max(a[1][1], b[1][1])))
 
 
-	
+def Equality(a, b):
+	if len(a) != len(b):
+		return False
+	for i in range(len(a)):
+		if a[i] != b[i]:
+			return False
+	return True
+
 
 
 def getScreenSpaceBoundsNoScale(ob, camera, useBounds = False):
@@ -186,14 +196,13 @@ def getScreenSpaceBoundsNoScale(ob, camera, useBounds = False):
 	if useBounds:
 		cam_coord = getCamSpaceBoundingBox(ob, camera)
 	else:
-		cam_coord = getCamSpaceVertexPositions(ob, camera)		
-	render_scale = scene.render.resolution_percentage / 100
-	render_size = (int(scene.render.resolution_x * render_scale),int(scene.render.resolution_y * render_scale))	
+		cam_coord = getCamSpaceVertexPositions(ob, camera)				
 	screen_coords = [(pt.x, pt.y) for pt in cam_coord]
 	bounds = getBounds2D(screen_coords)
 	return bounds
 
 def getScreenSpaceBounds(ob, camera, useBounds = False):
+	scene = bpy.context.scene
 	bounds = getScreenSpaceBoundsNoScale(ob, camera, useBounds)
 	render_scale = scene.render.resolution_percentage / 100	
 	render_size = ((scene.render.resolution_x * render_scale),(scene.render.resolution_y * render_scale))	

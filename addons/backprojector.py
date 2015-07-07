@@ -25,8 +25,9 @@ bl_info = {
 LAYER_BACKGROUND = 0
 LAYER_POPPED_OUT = 1
 LAYER_PICKUP	 = 2
+LAYER_SCRATCH	 = 3
 
-layer_names = ["background", "popped_out", "picked_up"]
+layer_names = ["background", "popped_out", "picked_up", "scratch"]
 
 class viewportParams:
 
@@ -168,30 +169,39 @@ def getActiveViewMVP(obj):
 	projmat = getActiveViewMatrix()
 	return obj.matrix_world.transposed() * projmat
 
-def getLayerFilename(layer):
-	return layer_names[layer] + "_layer.png"
+def getLayerFilename(layer, ob = None):
+	if ob is not None:
+		return layer_names[layer] + "_" + ob.name + "_layer.png"
+	else:
+		return layer_names[layer] + "_layer.png"
 
-def getLayerFilepath(layer):
-	return os.path.splitext(bpy.data.filepath)[0] + "_" + getLayerFilename(layer)
+def getLayerFilepath(layer, ob = None):
+	return GetBasePath() + "_" + getLayerFilename(layer, ob)
 
-def EnsureImage(layer):
-	layer_name = getLayerFilename(layer)
+def EnsureImage(layer, ob = None):
+	image = None
+	scene = bpy.context.scene
+	layer_name = getLayerFilename(layer, ob)
+	resolution = [scene.render.resolution_x, scene.render.resolution_y]
+#	if ob is not None:
+#		bounds = getScreenSpaceBounds(ob, scene.camera)
+#		resolution = (bounds[1][0] - bounds[0][0], bounds[1][1] - bounds[0][1])
 	print("trying to ensure image " + layer_name)
 	try:
 		image = bpy.data.images[layer_name]
-		print("Found image " + image.name)
-		if image.size == (0, 0):
-			print("Image is empty, removing")
+		if Equality(image.size, resolution) == False:
+			print("Image size of " + layer_name + " does not match target, removing and recreating at %i, %i" % (resolution[0], resolution[1]))
 			image.user_clear()
 			bpy.data.images.remove(image)
-			scene = bpy.context.scene
-			image = bpy.data.images.new(layer_name, scene.render.resolution_x, scene.render.resolution_y)
-
+			image = bpy.data.images.new(layer_name, resolution[0], resolution[1])
+		else:
+			print("Found and using existing image: " + layer_name)
 	except:
-		print("Creating new image")
-		scene = bpy.context.scene
-		image = bpy.data.images.new(layer_name, scene.render.resolution_x, scene.render.resolution_y)
-	image.filepath = getLayerFilepath(layer)
+		print("Could not find " + layer_name + " Creating new image at %i,%i resolution" % (resolution[0], resolution[1]))
+		image = bpy.data.images.new(layer_name, resolution[0], resolution[1])
+	image.filepath = getLayerFilepath(layer, ob)
+	image.save() #presave, allows for reload
+	print("Image filename set to " + image.filepath)
 	return image
 
 class ApplyBackProjection(bpy.types.Operator):
@@ -217,40 +227,79 @@ class ApplyBackProjectionNoMod(bpy.types.Operator):
 		ApplyBackProjectionToSelected(bpy.context.scene.camera, False)
 		return {'FINISHED'}
 
+
+#def CopyRect(ImageA, ImageB, RectA, RectB):
+
+
 class RenderScene(bpy.types.Operator):
 	bl_idname = "view3d.render_scene"
 	bl_label = "Render Scene"
 	trigger = BoolProperty(default = False)
 	mode = BoolProperty(default = False)
+	PerObjectLayers = BoolProperty(default = False)
 
 	def execute(self, context):
 		print("About to render scene")
 		RestoreSourceMaterials()
 		SerialiseMaterials()  	  # save current materials off to json file
 		scene = bpy.context.scene
+		RenderResult = bpy.data.images["Render Result"];
 		ApplyBackProjectionTo(scene.camera, False, lambda ob: True)
+
+		##BACKGROUND LAYER##
+		scene.render.use_border = False
 		setCameraRayVisibility(True, func = lambda ob: ob.layers[0] == True)
 		setCameraRayVisibility(False, func = lambda ob: ob.layers[1] == True)
 		image = EnsureImage(LAYER_BACKGROUND)
+		print("Setting scene render filepath: " + image.filepath)
 		scene.render.filepath = image.filepath
 		bpy.ops.render.render(write_still = True, layer = "RenderLayer")
-		print("About to save render as " + image.filepath)
 
-		image.save_render(image.filepath)
+		print("About to save render as " + image.filepath)		
+		RenderResult.save_render(image.filepath)
+		image.reload()
 		mat = FindOrCreateProjectionMaterial(image)
 		SetPreviewMaterial(mat, lambda ob: ob.layers[0] == True)
-		print("Completed")
-		setCameraRayVisibility(True, func = lambda ob: ob.layers[1] == True)
-		setCameraRayVisibility(False, func = lambda ob: ob.layers[0] == True)
-		image = EnsureImage(LAYER_POPPED_OUT)
-		scene.render.filepath = image.filepath
-		bpy.ops.render.render(write_still = True, layer = "RenderLayer")
-		print("About to save render as " + image.filepath)
-		image.save_render(image.filepath)
-		print("Completed")
+		print("Completed")		
+		
+		##POPPED OUT-LAYER##
+		if self.PerObjectLayers:
+			ObjectImagePairs = []
+			scene.render.use_border = True
+			#scene.render.use_crop_to_border = True  # Make sure we crop so that the image file we create is small
+			scene.cycles.film_transparent = True    # Ensure a transparent layer
+			setCameraRayVisibility(False, func = lambda ob: ob.layers[0] == True) 	# turn off rendering of base layers
+			for ob in scene.objects:												# Render each object seperately
+				if isinstance(ob.data, Mesh):
+					if ob.layers[1] == True:
+						ob.cycles_visibility.camera = True   			 # Make object visible
+						setRenderBoundsToObject(ob, scene.camera)  		 # ensure we only clip this image
+						image = EnsureImage(LAYER_POPPED_OUT, ob)
+						ObjectImagePairs.append((image, ob))
+						scene.render.filepath = image.filepath
+						bpy.ops.render.render(write_still = True, layer = "RenderLayer")
+						print("About to save render as " + image.filepath)
+						RenderResult.save_render(image.filepath)					
+						image.reload()
+						print("Completed")
+		else:
+			image = EnsureImage(LAYER_POPPED_OUT)
+			setCameraRayVisibility(False, func = lambda ob: ob.layers[0] == True)
+			setCameraRayVisibility(True, func = lambda ob: ob.layers[1] == True)
+			scene.render.filepath = image.filepath
+			bpy.ops.render.render(write_still = True, layer = "RenderLayer")
+			RenderResult.save_render(image.filepath)		
+			image.reload()
+
+
+		#Now pack all the sub images
 		mat = FindOrCreateProjectionMaterial(image)
+		scene.render.use_crop_to_border = False
+		scene.cycles.film_transparent = False
+		scene.render.use_border = False
+		restoreRenderBounds()
 		SetPreviewMaterial(mat, lambda ob: ob.layers[1] == True)
-		setCameraRayVisibility(True, lambda ob: ob.layers[0] == True)
+		setCameraRayVisibility(True, lambda ob: True)
 		#bpy.ops.render.render( write_still=True, layer="Overlay")
 		#bpy.data.images['Render Result'].save_render("C:\\Users\\Tim\\Google Drive\\OysterWorld\\HOPA\\BlenderOutput\\layer1.png")
 		return {'FINISHED'}
@@ -309,8 +358,17 @@ class CRestoreSourceMaterials(bpy.types.Operator):
 def copylist(inlist):
 	return [i in inlist]
 
+def GetBasePath():
+	path = os.path.splitext(bpy.data.filepath)[0]
+	if len(path) == 0:
+		path = os.path.join(os.path.expanduser('~'), "BlenderScene")
+	return path
+
+
 def GetSceneMaterialFilename():
-	return os.path.splitext(bpy.data.filepath)[0] + "_materials.csv"
+	fname = GetBasePath()
+
+	return  fname+ "_materials.csv"
 
 def SceneMaterialsToMap():
 	materialdb = {}
@@ -565,7 +623,7 @@ def ApplyBackProjectionToObject(obj, camera, useModifier = True,  layer= LAYER_B
 				pass
 
 			performBackProjectionOnObject(obj, camera, offset, scale, aspect)
-			print("Finished backing UVs")
+			print("Finished baking UVs")
 
 #more to remind myself about bpy.context.active_object
 def ApplyBackProjectionToCurrent(camera):
@@ -644,14 +702,6 @@ def initSceneProperties():
 	bpy.types.Scene.MyString = bpy.props.StringProperty(
 		name = "String")
 	return
-
-
-def Equality(a,b):
-	for i in range(len(a)):
-		if a[i] != b[i]:
-			return False
-	return True
-
 
 
 class VIEW3D_PT_BackProjector(bpy.types.Panel):
