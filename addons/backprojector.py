@@ -9,7 +9,7 @@ from bpy.props import IntProperty, BoolProperty, FloatProperty, EnumProperty
 import csv
 from os.path import expanduser
 import PIL
-import pack_images
+import image_packer
 
 bl_info = {
 	"name": "BackProjection tools",
@@ -291,7 +291,6 @@ class RenderScene(bpy.types.Operator):
 						image.reload()
 						print("Completed")
 		scene.render.use_crop_to_border = False
-		
 		restoreRenderBounds()
 		if RenderCombined:
 			image = EnsureImage(LAYER_POPPED_OUT)
@@ -301,8 +300,12 @@ class RenderScene(bpy.types.Operator):
 			bpy.ops.render.render(write_still = True, layer = "RenderLayer")
 			RenderResult.save_render(image.filepath)
 			image.reload()
-			
-			imagesortlist = [sorted([(i.size[0] * i.size[1], name, i) for name, i in ((x, PIL.Image.open(x).convert(format)) for x in names)])]
+
+			pilImages = [(convertBlenderToPIL(img), img.name) for img, ob in ObjectImagePairs]
+			imagesortlist = [sorted((i.size[0] * i.size[1], name, i) for img, name in pilImages)]
+			packedImages, tree = image_packer.PackImagesFromList(imagesortlist, (256, 256))
+			packedImages.save(GetBasePath() + "_texture_page.png")
+			#now traverse tree, offset UVs
 			mat = FindOrCreateProjectionMaterial(image)
 			SetPreviewMaterial(mat, lambda ob: ob.layers[1] == True)
 
