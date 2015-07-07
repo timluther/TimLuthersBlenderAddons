@@ -28,6 +28,20 @@ def removeImage(img):
 	imgobj.user_clear()
 	bpy.data.images.remove(imgobj)
 
+
+def convertBlenderToPIL(img):
+	pimg = PIL.Image.new("RGBA", img.size)
+	pixels = img.pixels[:] # copy for speed
+	convpix = []
+	pixelCount = img.size[0] * img.size[1]
+	for y in reversed(range(img.size[1])):
+		base = (y * img.size[0]) << 2
+		for x in range(img.size[0]):
+			convpix.append((int(pixels[base] * 255), int(pixels[base + 1] * 255), int(pixels[base + 2] * 255), int(pixels[base + 3] * 255)))
+			base += 4
+	pimg.putdata(convpix)
+	return pimg
+
 def removeReferenceToMaterial(mat):
 	for ob in bpy.data.objects:
 		if isinstance(ob.data, Mesh):

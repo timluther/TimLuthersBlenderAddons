@@ -8,6 +8,8 @@ import json
 from bpy.props import IntProperty, BoolProperty, FloatProperty, EnumProperty
 import csv
 from os.path import expanduser
+import PIL
+import pack_images
 
 bl_info = {
 	"name": "BackProjection tools",
@@ -178,22 +180,25 @@ def getLayerFilename(layer, ob = None):
 def getLayerFilepath(layer, ob = None):
 	return GetBasePath() + "_" + getLayerFilename(layer, ob)
 
-def EnsureImage(layer, ob = None):
+def EnsureImage(layer, ob = None, Resolution = None):
 	image = None
 	scene = bpy.context.scene
 	layer_name = getLayerFilename(layer, ob)
 	resolution = [scene.render.resolution_x, scene.render.resolution_y]
-#	if ob is not None:
-#		bounds = getScreenSpaceBounds(ob, scene.camera)
-#		resolution = (bounds[1][0] - bounds[0][0], bounds[1][1] - bounds[0][1])
+	if Resolution is not None:
+		resolution = Resolution
+	if ob is not None:
+		bounds = getScreenSpaceBounds(ob, scene.camera)
+		resolution = (bounds[1][0] - bounds[0][0], bounds[1][1] - bounds[0][1])
 	print("trying to ensure image " + layer_name)
 	try:
 		image = bpy.data.images[layer_name]
 		if Equality(image.size, resolution) == False:
-			print("Image size of " + layer_name + " does not match target, removing and recreating at %i, %i" % (resolution[0], resolution[1]))
-			image.user_clear()
-			bpy.data.images.remove(image)
-			image = bpy.data.images.new(layer_name, resolution[0], resolution[1])
+			print("Image found but size of " + layer_name + " (%i, %i) does not match target (%i, %i)." % (image.size[0], image.size[1], resolution[0], resolution[1]))
+			#print("Image size of " + layer_name + " does not match target, removing and recreating at %i, %i" % (resolution[0], resolution[1]))
+			#image.user_clear()
+			#bpy.data.images.remove(image)
+			#image = bpy.data.images.new(layer_name, resolution[0], resolution[1])
 		else:
 			print("Found and using existing image: " + layer_name)
 	except:
@@ -203,6 +208,8 @@ def EnsureImage(layer, ob = None):
 	image.save() #presave, allows for reload
 	print("Image filename set to " + image.filepath)
 	return image
+
+
 
 class ApplyBackProjection(bpy.types.Operator):
 	bl_idname = "view3d.apply_back_projection"
@@ -236,14 +243,15 @@ class RenderScene(bpy.types.Operator):
 	bl_label = "Render Scene"
 	trigger = BoolProperty(default = False)
 	mode = BoolProperty(default = False)
-	PerObjectLayers = BoolProperty(default = False)
+	PerObjectLayers = BoolProperty(default = True)
+	RenderCombined = BoolProperty(default = True)
 
 	def execute(self, context):
 		print("About to render scene")
 		RestoreSourceMaterials()
 		SerialiseMaterials()  	  # save current materials off to json file
 		scene = bpy.context.scene
-		RenderResult = bpy.data.images["Render Result"];
+		RenderResult = bpy.data.images["Render Result"]
 		ApplyBackProjectionTo(scene.camera, False, lambda ob: True)
 
 		##BACKGROUND LAYER##
@@ -255,18 +263,18 @@ class RenderScene(bpy.types.Operator):
 		scene.render.filepath = image.filepath
 		bpy.ops.render.render(write_still = True, layer = "RenderLayer")
 
-		print("About to save render as " + image.filepath)		
+		print("About to save render as " + image.filepath)
 		RenderResult.save_render(image.filepath)
 		image.reload()
 		mat = FindOrCreateProjectionMaterial(image)
 		SetPreviewMaterial(mat, lambda ob: ob.layers[0] == True)
-		print("Completed")		
-		
+		print("Completed")
+		RenderCombined = True
 		##POPPED OUT-LAYER##
 		if self.PerObjectLayers:
 			ObjectImagePairs = []
 			scene.render.use_border = True
-			#scene.render.use_crop_to_border = True  # Make sure we crop so that the image file we create is small
+			scene.render.use_crop_to_border = True  # Make sure we crop so that the image file we create is small
 			scene.cycles.film_transparent = True    # Ensure a transparent layer
 			setCameraRayVisibility(False, func = lambda ob: ob.layers[0] == True) 	# turn off rendering of base layers
 			for ob in scene.objects:												# Render each object seperately
@@ -279,27 +287,34 @@ class RenderScene(bpy.types.Operator):
 						scene.render.filepath = image.filepath
 						bpy.ops.render.render(write_still = True, layer = "RenderLayer")
 						print("About to save render as " + image.filepath)
-						RenderResult.save_render(image.filepath)					
+						RenderResult.save_render(image.filepath)
 						image.reload()
 						print("Completed")
-		else:
+		scene.render.use_crop_to_border = False
+		
+		restoreRenderBounds()
+		if RenderCombined:
 			image = EnsureImage(LAYER_POPPED_OUT)
 			setCameraRayVisibility(False, func = lambda ob: ob.layers[0] == True)
 			setCameraRayVisibility(True, func = lambda ob: ob.layers[1] == True)
 			scene.render.filepath = image.filepath
 			bpy.ops.render.render(write_still = True, layer = "RenderLayer")
-			RenderResult.save_render(image.filepath)		
+			RenderResult.save_render(image.filepath)
 			image.reload()
+			
+			imagesortlist = [sorted([(i.size[0] * i.size[1], name, i) for name, i in ((x, PIL.Image.open(x).convert(format)) for x in names)])]
+			mat = FindOrCreateProjectionMaterial(image)
+			SetPreviewMaterial(mat, lambda ob: ob.layers[1] == True)
 
-
-		#Now pack all the sub images
-		mat = FindOrCreateProjectionMaterial(image)
-		scene.render.use_crop_to_border = False
+		# Now pack all the sub images
+		image_packer
 		scene.cycles.film_transparent = False
 		scene.render.use_border = False
-		restoreRenderBounds()
-		SetPreviewMaterial(mat, lambda ob: ob.layers[1] == True)
+
+		scratch = EnsureImage(LAYER_SCRATCH, Resolution = (1024, 1024))
+
 		setCameraRayVisibility(True, lambda ob: True)
+		
 		#bpy.ops.render.render( write_still=True, layer="Overlay")
 		#bpy.data.images['Render Result'].save_render("C:\\Users\\Tim\\Google Drive\\OysterWorld\\HOPA\\BlenderOutput\\layer1.png")
 		return {'FINISHED'}
@@ -390,7 +405,7 @@ def LoadMaterials():
 	print("Opening material file at: " + fname)
 	return json.load(open(fname, "r"))
 
-def SetPreviewMaterial(mat, func = lambda ob: True):	
+def SetPreviewMaterial(mat, func = lambda ob: True):
 	for ob in bpy.data.objects:
 		if isinstance(ob.data, Mesh) and func(ob):
 			print("Setting material of " + ob.name + " to " + mat.name)
