@@ -177,11 +177,25 @@ def getLayerFilename(layer, ob = None):
 	else:
 		return layer_names[layer] + "_layer.png"
 
-def getLayerFilepath(layer, ob = None):
-	return GetBasePath() + "_" + getLayerFilename(layer, ob)
+def EnsureImageInner(name, filename, resolution = (256, 256)):
+	image = None
+	try:
+		image = bpy.data.images[name]
+		print("Found image " + str(image))
+		if Equality(image.size, resolution) == False:
+			print("Image found but size of " + name + " (%i, %i) does not match target (%i, %i)." % (image.size[0], image.size[1], resolution[0], resolution[1]))
+		else:
+			print("Found and using existing image: " + name)
+	except Exception as inst:
+		print(str(inst))
+		print("Could not find " + name + " Creating new image at %i,%i resolution" % (resolution[0], resolution[1]))
+		image = bpy.data.images.new(name, resolution[0], resolution[1])
+	image.filepath = filename
+	image.save()  # presave, allows for reload
+	return image
+
 
 def EnsureImage(layer, ob = None, Resolution = None):
-	image = None
 	scene = bpy.context.scene
 	layer_name = getLayerFilename(layer, ob)
 	resolution = [scene.render.resolution_x, scene.render.resolution_y]
@@ -191,21 +205,7 @@ def EnsureImage(layer, ob = None, Resolution = None):
 		bounds = getScreenSpaceBounds(ob, scene.camera)
 		resolution = (bounds[1][0] - bounds[0][0], bounds[1][1] - bounds[0][1])
 	print("trying to ensure image " + layer_name)
-	try:
-		image = bpy.data.images[layer_name]
-		if Equality(image.size, resolution) == False:
-			print("Image found but size of " + layer_name + " (%i, %i) does not match target (%i, %i)." % (image.size[0], image.size[1], resolution[0], resolution[1]))
-			#print("Image size of " + layer_name + " does not match target, removing and recreating at %i, %i" % (resolution[0], resolution[1]))
-			#image.user_clear()
-			#bpy.data.images.remove(image)
-			#image = bpy.data.images.new(layer_name, resolution[0], resolution[1])
-		else:
-			print("Found and using existing image: " + layer_name)
-	except:
-		print("Could not find " + layer_name + " Creating new image at %i,%i resolution" % (resolution[0], resolution[1]))
-		image = bpy.data.images.new(layer_name, resolution[0], resolution[1])
-	image.filepath = getLayerFilepath(layer, ob)
-	image.save() #presave, allows for reload
+	image = EnsureImageInner(layer_name, GetBasePath() + "_" + layer_name, resolution)
 	print("Image filename set to " + image.filepath)
 	return image
 
@@ -233,10 +233,6 @@ class ApplyBackProjectionNoMod(bpy.types.Operator):
 		print("About to apply back projection without modifier")
 		ApplyBackProjectionToSelected(bpy.context.scene.camera, False)
 		return {'FINISHED'}
-
-
-#def CopyRect(ImageA, ImageB, RectA, RectB):
-
 
 class RenderScene(bpy.types.Operator):
 	bl_idname = "view3d.render_scene"
@@ -280,16 +276,20 @@ class RenderScene(bpy.types.Operator):
 			for ob in scene.objects:												# Render each object seperately
 				if isinstance(ob.data, Mesh):
 					if ob.layers[1] == True:
+						setCameraRayVisibility(False, func = lambda ob: ob.layers[1] == True) 	# turn off rendering of base layers			
 						ob.cycles_visibility.camera = True   			 # Make object visible
 						setRenderBoundsToObject(ob, scene.camera)  		 # ensure we only clip this image
-						image = EnsureImage(LAYER_POPPED_OUT, ob)
-						ObjectImagePairs.append((image, ob))
-						scene.render.filepath = image.filepath
-						bpy.ops.render.render(write_still = True, layer = "RenderLayer")
-						print("About to save render as " + image.filepath)
-						RenderResult.save_render(image.filepath)
-						image.reload()
-						print("Completed")
+						if isRenderImageTooSmall() == False:						
+							image = EnsureImage(LAYER_POPPED_OUT, ob)
+							ObjectImagePairs.append((image, ob))
+							scene.render.filepath = image.filepath
+							bpy.ops.render.render(write_still = True, layer = "RenderLayer")
+							print("About to save render as " + image.filepath)
+							RenderResult.save_render(image.filepath)
+							image.reload()
+							print("Completed")
+						else:
+							print("Image Size too small!" + ob.name + " " + str(getScreenSpaceBounds(ob, scene.camera)))
 		scene.render.use_crop_to_border = False
 		restoreRenderBounds()
 		if RenderCombined:
@@ -302,22 +302,22 @@ class RenderScene(bpy.types.Operator):
 			image.reload()
 
 			pilImages = [(convertBlenderToPIL(img), img.name) for img, ob in ObjectImagePairs]
-			imagesortlist = [sorted((i.size[0] * i.size[1], name, i) for img, name in pilImages)]
-			packedImages, tree = image_packer.PackImagesFromList(imagesortlist, (256, 256))
-			packedImages.save(GetBasePath() + "_texture_page.png")
+			imagesortlist = sorted((img.size[0] * img.size[1], name, img) for img, name in pilImages)
+			packedImages, tree = image_packer.PackImagesFromList(imagesortlist, 'RGBA', (256, 256))
+			packedtexture_fn = GetBasePath() + "_texture_page.png"
+			packedImages.save(packedtexture_fn)
+			head, name = os.path.split(packedtexture_fn)
+			EnsureImageInner(name, packedtexture_fn)	#reload as blender image
 			#now traverse tree, offset UVs
 			mat = FindOrCreateProjectionMaterial(image)
 			SetPreviewMaterial(mat, lambda ob: ob.layers[1] == True)
 
 		# Now pack all the sub images
-		image_packer
+
 		scene.cycles.film_transparent = False
 		scene.render.use_border = False
-
 		scratch = EnsureImage(LAYER_SCRATCH, Resolution = (1024, 1024))
-
 		setCameraRayVisibility(True, lambda ob: True)
-		
 		#bpy.ops.render.render( write_still=True, layer="Overlay")
 		#bpy.data.images['Render Result'].save_render("C:\\Users\\Tim\\Google Drive\\OysterWorld\\HOPA\\BlenderOutput\\layer1.png")
 		return {'FINISHED'}
@@ -340,6 +340,17 @@ class CSaveFBX(bpy.types.Operator):
 
 	def execute(self, context):
 		print("About to save FBX")
+		return {'FINISHED'}
+
+
+class CSaveMaterials(bpy.types.Operator):
+	bl_idname = "view3d.save_materials"
+	bl_label = "Save Materials"
+	trigger = BoolProperty(default = False)
+	mode = BoolProperty(default = False)
+
+	def execute(self, context):
+		SerialiseMaterials()  	# save current materials off to json file
 		return {'FINISHED'}
 
 class CSetPreviewMaterial(bpy.types.Operator):
@@ -440,6 +451,7 @@ def RestoreSourceMaterials():
 
 
 def ensureUVChannels(obj):
+	uvoffsetchan = None  # offsets in to the texture page
 	uvchandivw = None
 	uvchan = None
 	zwchan = None
@@ -455,6 +467,11 @@ def ensureUVChannels(obj):
 		zwchan = obj.data.uv_textures['ProjUVZW']
 	except:
 		zwchan = obj.data.uv_textures.new('ProjUVZW')
+	try:
+		uvoffsetchan = obj.data.uv_textures['UVOffset']
+	except:
+		uvoffsetchan = obj.data.uv_textures.new('UVOffset')
+
 	return uvchan, zwchan, uvchandivw
 
 
@@ -580,12 +597,27 @@ def projectUVs(obj, objToViewMatrix, projectionMatrix):
 				w = vres.w if vres.w != 0.0 else 1.0
 				luvdivw.uv = vres.xy / w
 				luv.uv = vres.xy
-				uvw.uv = [vres.z, w]
+				uvw.uv = (vres.z, w)
 				vidx = vidx + 1
 			++fidx
 		endMeshUpdate(obj, bmesh)
 	else:
 		print(str(obj) + " is not a mesh object")
+
+
+def offsetUVs(obj, camera, useBounds, TextureAtlasNode):
+	bmesh = startMeshUpdate(obj)
+	uvoffset_chan = bmesh.loops.layers.uv['UVOffset']
+	bounds = getScreenSpaceBoundsNoScale(obl, camera, useBounds)
+	area = TextureAtlasNode.area
+	uvoffset = (-bounds[0][0] + area[0][0], -bounds[0][1] + area[0][1])
+	#although this is a single value, for now there is no way of doing per object instance shader properties
+	for f in bmesh.faces:
+		for l in f.loops:
+			luvoffset = l[uvoffset_chan]
+			luvoffset.uv = uvoffset
+
+	endMeshUpdate(obj, bmesh)
 
 def performBackProjectionOnObjectActiveView(obj):
 	MVP = getActiveViewMVP(obj)
@@ -769,6 +801,8 @@ class VIEW3D_PT_BackProjector(bpy.types.Panel):
 		row = col.row()
 		row.label(text="Rendered material preview:")
 		row = col.row()
+		row.operator("view3d.save_materials", icon="MOD_UVPROJECT")
+		row = col.row()
 
 		row.operator("view3d.set_preview_material", icon="MOD_UVPROJECT")
 		row.operator("view3d.restore_source_material", icon="MOD_UVPROJECT")
@@ -783,6 +817,13 @@ class VIEW3D_PT_BackProjector(bpy.types.Panel):
 
 		col.alignment = 'EXPAND'
 
+
+def pre_save(dummy):
+	print("Saving.. restoring original materials (can be lost by blender file optimisation)")
+	RestoreSourceMaterials()
+
+
+
 	#
 		#ob = context.active_object
 		#layout.prop_search(ob, "textureName", bpy.data, "images")
@@ -795,7 +836,9 @@ def register():
 	bpy.utils.register_class(CSavePSD)
 	bpy.utils.register_class(CSaveFBX)
 	bpy.utils.register_class(CSetPreviewMaterial)
+	bpy.utils.register_class(CSaveMaterials)
 	bpy.utils.register_class(CRestoreSourceMaterials)
+	bpy.app.handlers.save_pre.append(pre_save)
 
 def unregister():
 	bpy.utils.unregister_class(VIEW3D_PT_BackProjector)
@@ -805,7 +848,9 @@ def unregister():
 	bpy.utils.unregister_class(CSavePSD)
 	bpy.utils.unregister_class(CSaveFBX)
 	bpy.utils.unregister_class(CSetPreviewMaterial)
+	bpy.utils.unregister_class(CSaveMaterials)
 	bpy.utils.unregister_class(CRestoreSourceMaterials)
+	bpy.app.handlers.save_pre.remove(pre_save)
 
 if __name__ == "__main__":
 	register()

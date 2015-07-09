@@ -67,13 +67,13 @@ class PackNode(object):
             return PackNode((self.area[0], self.area[1], self.area[0]+area.width + self.padding, self.area[1]+area.height + self.padding), self.padding)
 
 image_maxsize = (2048, 2048)
-def PackImagesFromList(images, format, minsize = (256, 256), padding = 4):
+def PackImagesFromList(images, format = 'RGBA', minsize = (256, 256), padding = 4):
     size = minsize   # get a list of PNG files in the current directory
     tree = PackNode(size, padding)
     image = PIL.Image.new(format, size)
     clearImage(image)
-    #insert each image into the PackNode area
     for area, name, img in images:
+        print("Image: " + name + " : " + str(image) + " area : " + str(area))
         uv = tree.insert(img.size)
         if uv is None:
             newsize = (NextPowerOf2(minsize[0]), NextPowerOf2(minsize[1]))

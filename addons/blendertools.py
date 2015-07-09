@@ -2,6 +2,7 @@ import bpy
 from bpy_types import *
 from bpy_extras import *
 from mathutils import *
+import PIL
 import bmesh
 import sys
 import os
@@ -30,6 +31,7 @@ def removeImage(img):
 
 
 def convertBlenderToPIL(img):
+	print("Converting to PIL image, size: " + str(img.size))
 	pimg = PIL.Image.new("RGBA", img.size)
 	pixels = img.pixels[:] # copy for speed
 	convpix = []
@@ -202,8 +204,6 @@ def Equality(a, b):
 			return False
 	return True
 
-
-
 def getScreenSpaceBoundsNoScale(ob, camera, useBounds = False):
 	scene = bpy.context.scene
 	cam_coord = None
@@ -238,6 +238,13 @@ def getScreenSpaceBoundsWithLayerMask(camera, useBounds = False, layermask = 0):
 	return bounds
 #int(scene.render.resolution_x * render_scale) * render_size[0],
 #int(scene.render.resolution_y * render_scale) * render_size[1],
+
+
+def isRenderImageTooSmall():
+	diff = [bpy.context.scene.render.border_max_y - bpy.context.scene.render.border_min_y, bpy.context.scene.render.border_max_x - bpy.context.scene.render.border_min_x]
+	return diff[0] == 0 or diff[1] == 0
+	
+	
 	  
 def setRenderBoundsToObject(ob, camera, useBounds = False):
 	bounds = getScreenSpaceBoundsNoScale(ob, camera, useBounds)
