@@ -243,8 +243,7 @@ def getScreenSpaceBoundsWithLayerMask(camera, useBounds = False, layermask = 0):
 def isRenderImageTooSmall():
 	diff = [bpy.context.scene.render.border_max_y - bpy.context.scene.render.border_min_y, bpy.context.scene.render.border_max_x - bpy.context.scene.render.border_min_x]
 	return diff[0] == 0 or diff[1] == 0
-	
-	
+		
 	  
 def setRenderBoundsToObject(ob, camera, useBounds = False):
 	bounds = getScreenSpaceBoundsNoScale(ob, camera, useBounds)
